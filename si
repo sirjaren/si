@@ -1,0 +1,685 @@
+#!/bin/bash
+#-------------------------------------------------------------------------------
+# si - Parallel BASH commandline music image splitter to separate FLAC files
+#-------------------------------------------------------------------------------
+# Copyright (C) 2013  Jaren Stangret
+#-------------------------------------------------------------------------------
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+#-------------------------------------------------------------------------------
+# You can follow development of this script on Github at:
+# https://github.com/sirjaren/si
+#
+# Please submit requests/changes/patches and/or comments
+#-------------------------------------------------------------------------------
+# File Descriptors used in this script
+#    0: STDIN
+#    1: STDOUT
+#    2: STDERR
+#    3: FIFO process manager
+#-------------------------------------------------------------------------------
+# Enable BASH globstar
+shopt -s globstar
+
+# Store current stty settings
+old_stty="$(stty -g)"
+
+# Prevent Control-C from displaying '^C'.  May already be set
+stty -ctlecho 2>/dev/null
+
+# Hide the cursor
+printf "\033[?25l"
+
+# Current program version
+version="0.1"
+
+# Number of jobs
+jobs=2
+
+# Colors
+yellow="\033[33m"
+green="\033[32m"
+normal="\033[0m"
+
+# Temporary FIFO location
+tmp_fifo="/tmp/split_images_fifo_$$"
+
+# Directory housing music image files
+image_dir="${1%/}"
+
+# Directory where split music file end up
+split_dir="/media/Music_Library/Music/Split Music Files"
+
+# Shnsplit flac encoder to use:
+#  No SEEKTABLE block created
+#  Fastest/Lowest compression: 1
+#  Verify FLAC output (tests integrity)
+#  Output to shnsplit as '%f' which is sent to STDOUT
+shn_flac_enc="flac flac --no-seektable -1 -V -o %f -"
+
+# Various music files
+wav_files=( "${image_dir}"/**/*.[Ww][Aa][Vv] )
+wv_files=( "${image_dir}"/**/*.[Ww][Vv] )
+flac_files=( "${image_dir}"/**/*.[Ff][Ll][Aa][Cc] )
+ape_files=( "${image_dir}"/**/*.[Aa][Pp][Ee] )
+
+# Test if there were any of the above file formats found, and if so add them to
+# the ${total_files[@]} array
+if [[ -f "${wav_files[0]}" ]] ; then
+	total_files+=( "${wav_files[@]}" )
+fi
+
+if [[ -f "${wv_files[0]}" ]] ; then
+	total_files+=( "${wv_files[@]}" )
+fi
+
+if [[ -f "${flac_files[0]}" ]] ; then
+	total_files+=( "${flac_files[@]}" )
+fi
+
+if [[ -f "${ape_files[0]}" ]] ; then
+	total_files+=( "${ape_files[@]}" )
+fi
+
+# Yellow message
+__warn () {
+	printf "${normal}%s${yellow}%s${normal}%s" \
+	" " "*" " ${@}"
+}
+
+# Green message
+__info () {
+	printf "${normal}%s${green}%s${normal}%s" \
+	" " "*" " ${@}"
+}
+
+# Prints the number of newlines specified
+# by ${1}
+__newline () {
+	newlines="${1}"
+
+	# If ${newlines} is empty, set to 1 in order
+	# to allow one newline to be printed
+	if [[ -z "${newlines}" ]] ; then
+		newlines="1"
+	fi
+
+	# Print the number of newlines specified
+	for (( count=0; count < ${newlines}; count++ )) ; do
+		printf "\n"
+	done
+}
+
+# This is the function to run when a user invokes SIGINT during an operation
+__operation_abort () {
+	__newline
+	__info "Control-C received. Please wait..."
+
+	# Kill running children
+	__kill_jobs
+
+	# Remove any temporary WAV files (if any)
+	rm -f "${image_dir}"/**/\[[0-9]*\]_tmp_si_[0-9]*.wav
+
+	# Restore old stty settings, make stty happy by redirecting /dev/stderr
+	stty ${old_stty} < /dev/stderr
+
+	# Restore the cursor
+	printf "\033[?25h"
+
+	exit 1
+}
+
+# Kill any child process
+__kill_jobs () {
+	# Hide error output in case there are no children to kill
+	kill $(jobs -rp)
+
+	# Wait on killing the children process, hiding STDERR to disable job control
+	# output
+	wait "${!}" 2>/dev/null
+}
+
+# Determine which operation should be run by file extension
+__determine_operation () {
+	case "${i##*.}" in
+		[Ww][Aa][Vv])
+			parallel_operation="__operation_wav"
+		;;
+		[Ww][Vv])
+			parallel_operation="__operation_wv"
+		;;
+		[Ff][Ll][Aa][Cc])
+			parallel_operation="__operation_flac"
+		;;
+		[Aa][Pp][Ee])
+			parallel_operation="__operation_ape"
+		;;
+		*)
+			__warn "Some unknown extension was found!  This is a bug!" ; __newline
+		;;
+	esac
+}
+# Clear old file descriptor (3) and create a new
+# FIFO that's tied to file discriptor 3, removing
+# the FIFO upon completion
+__clear_tmp_fd () {
+	# Create temporary FIFO
+	mkfifo "${tmp_fifo}"
+
+	# Open FIFO for reading and writing on file descriptor '3'
+	exec 3<>"${tmp_fifo}"
+
+	# Remove temporary FIFO and leave just the file
+	# descriptor available
+	rm -f "${tmp_fifo}"
+}
+
+# Function to run operations in parallel
+__run_parallel_files () {
+	# Forces iteration to start at 0, in the event that
+	# multiple operations are going to be run
+	iteration=0
+
+	# Start as many processes as determined by ${jobs}
+	for i in "${total_files[@]:0:${jobs}}" ; do
+
+		__determine_operation
+
+		((iteration++))
+		"${parallel_operation}" &
+	done
+
+	# If the FLAC files to process are greater than the # of ${jobs}
+	# available, continue processing them, else quit
+	if [[ "${#total_files[@]}" -gt "${jobs}" ]] ; then
+
+		# After each newline is read from FIFO, start a new process
+		while read ; do
+
+			# If current number of FLACs to process is less than total FLACs
+			# found, add another FLAC to process
+			if [[ "${iteration}" -lt "$(( ${#total_files[@]} - 1 ))" ]] ; then
+				i="${total_files[${iteration}]}"
+
+				__determine_operation
+
+				((iteration++))
+
+				"${parallel_operation}" &
+
+			# Below is processed only if the current directory
+			# is equal to the last ${flac_directories_array[@]} index
+			else
+				last_file="true"
+				i="${total_files[${iteration}]}"
+
+				__determine_operation
+
+				((iteration++))
+
+				"${parallel_operation}" &
+
+				# Break out of loop to prevent hanging FIFO
+				break
+			fi
+		done <&3
+	else
+		last_file="true"
+	fi
+
+	# Wait for children processes
+	wait
+}
+
+# Load up CUE file and obtain album tags
+__load_cue () {
+	# Grab pathname to directory housing image file
+	directory="${i%/*}"
+
+	# Find CUE files (first index)
+	cue_file=( "${directory}"/**/*.[Cc][Uu][Ee] )
+
+	# Album METADATA from CUE file
+	#
+	#
+	# Load up CUE into array
+	mapfile -n0 -t cue_array < "${cue_file[0]}"
+
+	# Remove any carriage returns (if the CUE is from Windows)
+	cue_array=( "${cue_array[@]//$'\r'/}" )
+
+	# Run through CUE file (from array) and obtain album tags
+	for tag in "${cue_array[@]}" ; do
+		# Grab ARTIST tag
+		if [[ "${tag}" == PERFORMER* ]] ; then
+			ARTIST="${tag#*\"}"
+			ARTIST="${ARTIST%\"}"
+
+			if [[ -z "${ARTIST}" ]] ; then
+				ARTIST="unknown_artist"
+			fi
+		fi
+
+		# Grab ALBUM tag
+		if [[ "${tag}" == TITLE* ]] ; then
+			ALBUM="${tag#*\"}"
+			ALBUM="${ALBUM%\"}"
+
+			if [[ -z "${ALBUM}" ]] ; then
+				ALBUM="unknown_album"
+			fi
+		fi
+
+		# Grab DATE tag
+		if [[ "${tag}" == 'REM DATE'* ]] ; then
+			DATE="${tag#* * }"
+
+			if [[ -z "${DATE}" ]] ; then
+				DATE="unknown_date"
+			fi
+		fi
+
+		# Grab GENRE tag
+		if [[ "${tag}" == 'REM GENRE'* ]] ; then
+			GENRE="${tag#* * }"
+			GENRE="${GENRE#\"}"
+			GENRE="${GENRE%\"}"
+
+			if [[ -z "${GENRE}" ]] ; then
+				GENRE="unknown_genre"
+			fi
+		fi
+	done
+}
+
+# Split image file with 'shnsplit'
+__split_file () {
+	# Let's make sure to kill running children if this function was aborted via
+	# SIGINT.  This function will receive EXIT from the kill in the previous
+	# trap
+	trap __kill_jobs EXIT
+
+	# The below 'shnsplit' command splits the music file:
+	#
+	#   -O always                 # Always overwrite files (if applicable)
+	#   -q                        # Suppress STDOUT (STDERR still shown)
+	#   -o "${shn_flac_enc}"      # Use defined FLAC encoder
+	#   -f "${cue_file[0]}"       # CUE file location
+	#   -t '%n - %t'              # Split files named (eg. 03 - TITLE.flac)
+	#   -d "${full_split_dir}"    # Output directory of split files
+	#   "${i}"                    # Music image file to split
+
+	shnsplit \
+		-O always \
+		-q \
+		-o "${shn_flac_enc}" \
+		-f "${cue_file[0]}" \
+		-t '%n - %t' \
+		-d "${full_split_dir}" \
+		"${i}"
+
+	# Remove files with tracknumbers that are zero (eg '00'), since the CUE file
+	# will choke on these files (not true songs)
+	rm -f "${full_split_dir}"/00*.flac
+}
+
+# Tag the split music files
+__tag_files () {
+	# Run through each FLAC file that was split, obtaining the TRACKNUMBER
+	# and TITLE tag from each file.  Once found, tag each FLAC file with the
+	# following tags (if available from the CUE file):
+	#   TITLE
+	#   ARTIST
+	#   ALBUM
+	#   DATE
+	#   TRACKNUMBER
+	#   GENRE
+	for file in "${full_split_dir}"/*.flac ; do
+
+		# Get basename of FLAC
+		file_basename="${file##*/}"
+
+		# Use the first part of the filename as the TRACKNUMBER.  This is
+		# to choose which TITLE to use in the CUE file
+		TRACKNUMBER="${file_basename%% - *}"
+
+		# Run through CUE file (from array) and obtain the current TITLE
+		# tag based off the TRACKNUMBER obtained earlier
+		for line in "${cue_array[@]}" ; do
+
+			# If the previous iteration matched the TRACKNUMBER to the track
+			# found in the CUE file, then ${track_found} was set to 'true',
+			# making the next iteration display the TITLE tag information that
+			# comes after the TRACKNUMBER tag information
+			if [[ "${track_found}" == "true" ]] ; then
+
+				# String line to just display the track TITLE
+				TITLE="${line#*TITLE \"}"
+				TITLE="${TITLE%\"}"
+
+				# If TITLE tag is null, display unknown
+				if [[ -z "${TITLE}" ]] ; then
+					TITLE="unknown_title"
+				fi
+
+				# Tag the current FLAC file with the obtained tags
+				metaflac \
+					--set-tag=TITLE="${TITLE}" \
+					--set-tag=ARTIST="${ARTIST}" \
+					--set-tag=ALBUM="${ALBUM}" \
+					--set-tag=DATE="${DATE}" \
+					--set-tag=TRACKNUMBER="${TRACKNUMBER}" \
+					--set-tag=GENRE="${GENRE}" \
+					"${file}"
+
+					# Reset ${track_found} value to enforce any previous value
+					# will be discarded on future tests
+					track_found=""
+
+			# TRACKNUMBER was not found in the previous line in the CUE file, so
+			# try the next line
+			else
+
+				# Check for the TRACKNUMBER in the current line
+				if [[ "${line#  TRACK }" == ${TRACKNUMBER}* ]] ; then
+
+					# TRACK was found with current TRACKNUMBER, continue
+					# to the next loop iteration
+					track_found="true"
+					continue
+				fi
+			fi
+		done
+	done
+}
+
+# Split FLAC images
+__operation_flac () {
+	# Let's make sure to kill running children if this function was aborted via
+	# SIGINT.  This function will receive SIGTERM from the kill in the previous
+	# trap
+	trap __kill_jobs EXIT
+
+	# Test FLAC file and send to background to allow killing on SIGTERM
+	flac -t --totally-silent "${i}" &
+
+	# Wait on background process and return exit code of said process
+	wait "${!}"
+
+	# Exit code 130 is SIGINT so only check for exit code '1'
+	if [[ "${?}" -eq 1 ]] ; then
+		__warn "${i#**/} failed testing" ; __newline
+	fi
+
+	# Load up CUE file and obtain album tags
+	__load_cue
+
+#	BITS="$(metaflac --show-bps "$i")"
+#	SAMPLE_RATE="$(metaflac --show-sample-rate "$i")"
+#	if [[ $SAMPLE_RATE -gt 44100 || $BITS -gt 16 ]] ; then
+		# Higher than CD quality (16bit/44.1kHz) so change CUE file
+		# from mm:ss:ff to mm:ss.nnn (frames/sec to milliseconds)
+#		grep -o "..:..:.." "$LOCAL_DIR"/*.cue | sed 1d | while read i ; do
+#			MM_SS="$(echo "$i" | grep -o "^..:..")"
+#			FF="$(echo "$i" | sed 's/^..:..://')"
+#			NNN="$(echo "scale=3 ; ((("$FF" + 1) / 75) * 1000 - 1)" | bc -l | sed 's/\..*//')"
+#			NNN_CHARS="$(echo -n $NNN | wc -m)"
+#			case $NNN_CHARS in
+#				3)
+					# eg 483, so do nothing
+#					;;
+#				2)
+					# eg 24, so add one zero in front
+#					NNN="0${NNN}"
+#					;;
+#				1)
+					# eg 8, so add two zeros in front
+#					NNN="00${NNN}"
+#					;;
+#				*)
+					# shouldn't happen, exit 1
+#					echo "SOMETHING'S WRONG!!!! CHECK CUE!!"
+#					exit 1
+#					;;
+#			esac
+			# Echo new index (mm:ss.nnn) to be parsed by shsplit
+#			echo "${MM_SS}.${NNN}"
+#		done | shnsplit -O always -q -o flac -d "$MUSIC_DIR"/"$ARTIST"/"$DATE - $ALBUM" "$i"
+#	else
+
+#	fi
+
+	# Create split files directory using tags obtained from the CUE file
+	full_split_dir="${split_dir}/${ARTIST}/${DATE} - ${ALBUM}"
+	mkdir -p "${full_split_dir}"
+
+	# Split image file with 'shnsplit' and send to background to allow killing
+	# on SIGTERM
+	__split_file &
+
+	# Wait on background process and return exit code of said process
+	wait "${!}"
+
+	# Exit code 130 is SIGINT so only check for exit code '1'
+	if [[ "${?}" -eq 1 ]] ; then
+		__warn "Failed to split ${i#**/}." ; __newline
+		__warn "${i#**/} may be corrupt." ; __newline
+	fi
+
+	# Tag the split music files
+	__tag_files
+
+	# Print newline into FIFO after completion
+	__newline >&3
+}
+
+# Split WAV images
+__operation_wav () {
+	# Let's make sure to kill running children if this function was aborted via
+	# SIGINT.  This function will receive SIGTERM from the kill in the previous
+	# trap
+	trap __kill_jobs EXIT
+
+	# Load up CUE file and obtain album tags
+	__load_cue
+
+	# Create split files directory using tags obtained from the CUE file
+	full_split_dir="${split_dir}/${ARTIST}/${DATE} - ${ALBUM}"
+	mkdir -p "${full_split_dir}"
+
+	# Split image file with 'shnsplit' and send to background to allow killing
+	# on SIGTERM
+	__split_file &
+
+	# Wait on background process and return exit code of said process
+	wait "${!}"
+
+	# Exit code 130 is SIGINT so only check for exit code '1'
+	if [[ "${?}" -eq 1 ]] ; then
+		__warn "Failed to split ${i#**/}." ; __newline
+		__warn "${i#**/} may be corrupt." ; __newline
+	fi
+
+	# Tag the split music files
+	__tag_files
+
+	# Print newline into FIFO after completion
+	__newline >&3
+
+}
+
+# Split WavPack images
+__operation_wv () {
+	# Find the directory path of the current file
+	file_path_dir="${i%/*}"
+
+	# The temporary WAV file to be created
+	tmp_wav="${file_path_dir}/[${iteration}]_tmp_si_$$.wav"
+
+	# Let's make sure to kill running children if this function was aborted via
+	# SIGINT.  This function will receive SIGTERM from the kill in the previous
+	# trap
+	trap __kill_jobs EXIT
+
+	# Test WavPack file and send to background to allow killing on SIGTERM
+	wvunpack -qv "${i}" 2>/dev/null &
+
+	# Wait on background process and return exit code of said process
+	wait "${!}"
+
+	# Exit code 130 is SIGINT so only check for exit code '1'
+	if [[ "${?}" -eq 1 ]] ; then
+		__warn "${i#**/} failed testing" ; __newline
+	fi
+
+	# Decompress WavPack file to WAV to allow processing by 'shnsplit', sending
+	# process to background to allow killing on SIGTERM
+	wvunpack -q "${i}" -o "${tmp_wav}" 2>/dev/null &
+
+	# Wait on background process and return exit code of said process
+	wait "${!}"
+
+	# Exit code 130 is SIGINT so only check for exit code '1'
+	if [[ "${?}" -eq 1 ]] ; then
+		__warn "Failed creating WAV file from ${i#**/}!" ; __newline
+		__warn "${i#**/} may be corrupt!" ; __newline
+	fi
+
+	# Keep a copy of ${i} for error logging
+	old_i="${i}"
+
+	# Set ${i} to the newly created WAV file as this will be used for splitting
+	i="${tmp_wav}"
+
+	# Load up CUE file and obtain album tags
+	__load_cue
+
+	# Create split files directory using tags obtained from the CUE file
+	full_split_dir="${split_dir}/${ARTIST}/${DATE} - ${ALBUM}"
+	mkdir -p "${full_split_dir}"
+
+	# Split image file with 'shnsplit' and send to background to allow killing
+	# on SIGTERM
+	__split_file &
+
+	# Wait on background process and return exit code of said process
+	wait "${!}"
+
+	# Exit code 130 is SIGINT so only check for exit code '1'
+	if [[ "${?}" -eq 1 ]] ; then
+		__warn "Failed to split ${old_i#**/}." ; __newline
+		__warn "${old_i#**/} may be corrupt." ; __newline
+	fi
+
+	# Tag the split music files
+	__tag_files
+
+	# Remove temporary WAV file
+	rm -f "${tmp_wav}"
+
+	# Print newline into FIFO after completion
+	__newline >&3
+}
+
+# Split APE images
+__operation_ape () {
+	# Find the directory path of the current file
+	file_path_dir="${i%/*}"
+
+	# The temporary WAV file to be created
+	tmp_wav="${file_path_dir}/[${iteration}]_tmp_si_$$.wav"
+
+	# Let's make sure to kill running children if this function was aborted via
+	# SIGINT.  This function will receive SIGTERM from the kill in the previous
+	# trap
+	trap __kill_jobs EXIT
+
+	# Test Monkey's Audio file and send to background to allow killing on
+	# SIGTERM
+	mac "${i}" -q >/dev/null 2>&1 &
+
+	# Wait on background process and return exit code of said process
+	wait "${!}"
+
+	# Exit code 130 is SIGINT so only check for exit code '1'
+	if [[ "${?}" -ne 0 && "${?}" -ne 130 ]] ; then
+		__warn "${i#**/} failed testing" ; __newline
+	fi
+
+	# Decompress Monkey's Audio file to WAV to allow processing by 'shnsplit',
+	# sending process to background to allow killing on SIGTERM
+	mac "${i}" "${tmp_wav}" -d >/dev/null 2>&1
+
+	# Wait on background process and return exit code of said process
+	wait "${!}"
+
+	# Exit code 130 is SIGINT so only check for exit code '1'
+	if [[ "${?}" -eq 1 ]] ; then
+		__warn "Failed creating WAV file from ${i#**/}!" ; __newline
+		__warn "${i#**/} may be corrupt!" ; __newline
+	fi
+
+	# Keep a copy of ${i} for error logging
+	old_i="${i}"
+
+	# Set ${i} to the newly created WAV file as this will be used for splitting
+	i="${tmp_wav}"
+
+	# Load up CUE file and obtain album tags
+	__load_cue
+
+	# Create split files directory using tags obtained from the CUE file
+	full_split_dir="${split_dir}/${ARTIST}/${DATE} - ${ALBUM}"
+	mkdir -p "${full_split_dir}"
+
+	# Split image file with 'shnsplit' and send to background to allow killing
+	# on SIGTERM
+	__split_file &
+
+	# Wait on background process and return exit code of said process
+	wait "${!}"
+
+	# Exit code 130 is SIGINT so only check for exit code '1'
+	if [[ "${?}" -eq 1 ]] ; then
+		__warn "Failed to split ${old_i#**/}." ; __newline
+		__warn "${old_i#**/} may be corrupt." ; __newline
+	fi
+
+	# Tag the split music files
+	__tag_files
+
+	# Remove temporary WAV file
+	rm -f "${tmp_wav}"
+
+	# Print newline into FIFO after completion
+	__newline >&3
+
+}
+
+# Process music image files
+if [[ -z "${total_files[@]}" ]] ; then
+	__warn "There are not any music images to process!" ; __newline
+else
+	__info "Processing music image files..."
+
+	# Trap SIGINT (Control-C) to abort cleanly
+	trap '__operation_abort 2>/dev/null' EXIT
+
+	# Make sure to clear file descriptor '3' before proceeding
+	__clear_tmp_fd
+
+	# Run parallel operations, that which is specified as ${1}
+	__run_parallel_files
+fi
