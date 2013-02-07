@@ -854,7 +854,7 @@ if [[ -z "${total_files[@]}" ]] ; then
 	__warn "There are not any music images to process!" ; __newline
 else
 	__newline
-	__info "Processing music image files..." ; __newline
+	__info "Splitting music image files..." ; __newline
 
 	# Trap SIGINT (Control-C) to abort cleanly
 	trap '__operation_abort 2>/dev/null' SIGINT
