@@ -72,34 +72,6 @@ split_dir="/media/Music_Library/Music/Split Music Files"
 #  Output to shnsplit as '%f' which is sent to STDOUT
 shn_flac_enc="flac flac --no-seektable -1 -V -o %f -"
 
-# Various music files
-wav_files=( "${image_dir}"/**/*.[Ww][Aa][Vv] )
-wv_files=( "${image_dir}"/**/*.[Ww][Vv] )
-flac_files=( "${image_dir}"/**/*.[Ff][Ll][Aa][Cc] )
-ape_files=( "${image_dir}"/**/*.[Aa][Pp][Ee] )
-
-# Test if there were any of the above file formats found, and if so add them to
-# the ${total_files[@]} array
-if [[ -f "${wav_files[0]}" ]] ; then
-	total_files+=( "${wav_files[@]}" )
-fi
-
-if [[ -f "${wv_files[0]}" ]] ; then
-	total_files+=( "${wv_files[@]}" )
-fi
-
-if [[ -f "${flac_files[0]}" ]] ; then
-	total_files+=( "${flac_files[@]}" )
-fi
-
-if [[ -f "${ape_files[0]}" ]] ; then
-	total_files+=( "${ape_files[@]}" )
-fi
-
-# Length of the total number of music images to split
-total_files_length="${#total_files[@]}"
-total_files_length="${#total_files_length}"
-
 # Yellow message
 __warn () {
 	printf "${normal}%s${yellow}%s${normal}%s" \
@@ -110,6 +82,68 @@ __warn () {
 __info () {
 	printf "${normal}%s${green}%s${normal}%s" \
 	" " "*" " ${@}"
+}
+
+# Top banner displaying invocation settings
+__top_banner () {
+	# If Redo Tags is called, create the necessary spacing
+	if [[ "${retag_flac}" == "true" ]] ; then
+		__newline 2
+	fi
+
+	# Top title line
+	printf "${normal}%s${blue}%s${normal}\n" \
+	" " "---------------------------------------------------"
+
+	# Title
+	printf "${normal}%s\n" \
+	"                Runtime Information"
+
+	# Bottom title line
+	printf "${normal}%s${blue}%s${normal}\n" \
+	" " "-------------------------+-------------------------"
+
+	# Script version
+	printf "${normal}%s${blue}%s${normal}%s${cyan}%s${normal}\n" \
+	"                  Version " "|" " " "${version}"
+
+	# Processes to be used
+	printf "${normal}%s${blue}%s${normal}%s${cyan}%s${normal}%s${cyan}%s${normal}\n" \
+	"            Parallel Jobs " "|" " " "${jobs}" " " "${jobs_display}"
+
+	# Bottom banner line
+	printf "${normal}%s${blue}%s${normal}\n\n" \
+	" " "-------------------------+-------------------------"
+
+	# Message indicating the searching of FLAC files
+	__info "Finding music image files to process..."
+}
+
+# Below creates the '[ ok ]' message to print after the info
+# line above.  This will be displayed when all the FLAC files
+# have been mapped to an array
+__processed_files_ok () {
+	# Grab the first line of 'stty -a' output
+	# Redirecting '/dev/stderr' to 'stty' allows valid arguments
+	read -r columns < <(stty -a < /dev/stderr)
+
+	# Remove superflous information from 'stty -a'
+	# Ends up with the width of terminal
+	columns="${columns/#*columns }"
+	columns="${columns/%;*}"
+
+	# ${images_ok_spacing} is the spacing from the number of
+	# ${columns} minus the number of printed characters:
+	#
+	#  * Finding music iamge files to process... <- ${images_ok_spacing} -> [ ok ]
+	#                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+	# 42 is the number of printed characters printed and is what is subtracted
+	# from ${columns} to get ${images_ok_spacing}:
+	#
+	#  ' * Finding music image files to process...'  (42 characters)
+	#                                     '[ ok ] '  ( 7 characters)
+	printf "${normal}%$(( ${columns} - 49 ))s${blue}%s${normal}%s${green}%s${normal}%s${blue}%s${normal}" \
+	"" "[" " " "ok" " " "]"
 }
 
 # Prints the number of newlines specified
@@ -140,7 +174,7 @@ __print_splitting_file () {
 	#             ${columns}:  Width of terminal
 	#          ${#iteration}:  Length of the # of files processed
 	#  ${total_files_length}:  Length of the total # of files to split
-	#                     19:  Length of:
+	#                     29:  Length of:
 	#                            [ Splitting Image ] (19)
 	#                            5 Spaces
 	#                            3 Characters: [/]
@@ -152,6 +186,28 @@ __print_splitting_file () {
 
 	printf "\r${normal}%s${magenta}%s${normal}%s%$(__current_length)s${blue}%s${normal}%s${yellow}%s${normal}%s${blue}%s${normal}%s" \
 	"   " "[${iteration}/${#total_files[@]}]" " ${filename} " "" "[" " " "Splitting Image" " " "]" " "
+}
+
+# Print ok message
+__print_ok () {
+	# This is the maximum length of a string to be displayed based on column width,
+	# obtained via the number of columns minus the length of displayed characters:
+	#
+	#             ${columns}:  Width of terminal
+	#          ${#iteration}:  Length of the # of files processed
+	#  ${total_files_length}:  Length of the total # of files to split
+	#                     16:  Length of:
+	#                            [ ok ] (6)
+	#                            5 Spaces
+	#                            3 Characters: [/]
+	#                            2 Gap and ellipsis (…)
+	max_filename_length="$(( $(__columns) - ${#iteration} - ${total_files_length} - 16 ))"
+
+	# Create and cull filename if needed returned as ${filename}
+	__filename
+
+	printf "\r${normal}%s${magenta}%s${normal}%s%$(__current_length)s${blue}%s${normal}%s${green}%s${normal}%s${blue}%s${normal}%s" \
+	"   " "[${iteration}/${#total_files[@]}]" " ${filename} " "" "[" " " "ok" " " "]" " "
 }
 
 # This is the function to run when a user invokes SIGINT during an operation
@@ -759,18 +815,64 @@ __operation_ape () {
 
 }
 
+# Display top banner
+__top_banner
+
+# Various music files
+wav_files=( "${image_dir}"/**/*.[Ww][Aa][Vv] )
+wv_files=( "${image_dir}"/**/*.[Ww][Vv] )
+flac_files=( "${image_dir}"/**/*.[Ff][Ll][Aa][Cc] )
+ape_files=( "${image_dir}"/**/*.[Aa][Pp][Ee] )
+
+# This displays '[ ok ]' after 'Finding musci image files to process...'
+__processed_files_ok
+
+# Test if there were any of the above file formats found, and if so add them to
+# the ${total_files[@]} array
+if [[ -f "${wav_files[0]}" ]] ; then
+	total_files+=( "${wav_files[@]}" )
+fi
+
+if [[ -f "${wv_files[0]}" ]] ; then
+	total_files+=( "${wv_files[@]}" )
+fi
+
+if [[ -f "${flac_files[0]}" ]] ; then
+	total_files+=( "${flac_files[@]}" )
+fi
+
+if [[ -f "${ape_files[0]}" ]] ; then
+	total_files+=( "${ape_files[@]}" )
+fi
+
+# Length of the total number of music images to split
+total_files_length="${#total_files[@]}"
+total_files_length="${#total_files_length}"
+
 # Process music image files
 if [[ -z "${total_files[@]}" ]] ; then
 	__warn "There are not any music images to process!" ; __newline
 else
-	__info "Processing music image files..."
+	__newline
+	__info "Processing music image files..." ; __newline
 
 	# Trap SIGINT (Control-C) to abort cleanly
-	trap '__operation_abort 2>/dev/null' EXIT
+	trap '__operation_abort 2>/dev/null' SIGINT
 
 	# Make sure to clear file descriptor '3' before proceeding
 	__clear_tmp_fd
 
 	# Run parallel operations, that which is specified as ${1}
 	__run_parallel_files
+
+	if [[ "${last_file}" == "true" ]] ; then
+		# Music image split successfully, printing only if it's the last file
+		__print_ok ; __newline
+	fi
 fi
+
+# Restore old stty settings, make stty happy by redirecting /dev/stderr
+stty ${old_stty} < /dev/stderr
+
+# Restore the cursor
+printf "\033[?25h"
