@@ -44,9 +44,6 @@ printf "\033[?25l"
 # Current program version
 version="0.1"
 
-# Number of jobs
-jobs=2
-
 # Colors
 blue="\033[34m"
 green="\033[32m"
@@ -117,6 +114,52 @@ __top_banner () {
 
 	# Message indicating the searching of FLAC files
 	__info "Finding music image files to process..."
+}
+
+# Display the summary of operations chart
+__operation_summary () {
+	# Title
+	printf "\n${normal}%s${blue}%s${normal}\n" \
+	" " "---------------------------------------------------"
+	printf "${normal}%s\n" \
+	"            Number Of Music Images Split"
+	printf "${normal}%s${blue}%s${normal}\n" \
+	" " "-------------------------+-------------------------"
+
+	if [[ -z "${flac_file[@]}" ]] ; then
+		printf "%s${yellow}%s${normal}%s${blue}%s${normal}%s${magenta}%s${normal}\n" \
+		"              " "FLAC Images" " " "|" " " "${#flac_files[@]}"
+	else
+		printf "%s${yellow}%s${normal}%s${blue}%s${normal}%s${green}%s${normal}\n" \
+		"              " "FLAC Images" " " "|" " " "${#flac_files[@]}"
+	fi
+
+	if [[ -z "${wav_files[@]}" ]] ; then
+		printf "%s${yellow}%s${normal}%s${blue}%s${normal}%s${magenta}%s${normal}\n" \
+		"               " "WAV Images" " " "|" " " "${#wav_files[@]}"
+	else
+		printf "%s${yellow}%s${normal}%s${blue}%s${normal}%s${green}%s${normal}\n" \
+		"               " "WAV Images" " " "|" " " "${#wav_files[@]}"
+	fi
+
+	if [[ -z "${ape_files[@]}" ]] ; then
+		printf "%s${yellow}%s${normal}%s${blue}%s${normal}%s${magenta}%s${normal}\n" \
+		"               " "APE Images" " " "|" " " "${#ape_files[@]}"
+	else
+		printf "%s${yellow}%s${normal}%s${blue}%s${normal}%s${green}%s${normal}\n" \
+		"               " "APE Images" " " "|" " " "${#ape_files[@]}"
+	fi
+
+	if [[ -z "${wv_files[@]}" ]] ; then
+		printf "%s${yellow}%s${normal}%s${blue}%s${normal}%s${magenta}%s${normal}\n" \
+		"                " "WV Images" " " "|" " " "${#wv_files[@]}"
+	else
+		printf "%s${yellow}%s${normal}%s${blue}%s${normal}%s${green}%s${normal}\n" \
+		"                " "WV Images" " " "|" " " "${#wv_files[@]}"
+	fi
+
+	printf "${normal}%s${blue}%s${normal}\n" \
+	" " "-------------------------+-------------------------"
 }
 
 # Below creates the '[ ok ]' message to print after the info
@@ -289,6 +332,45 @@ __kill_jobs () {
 	# Wait on killing the children process, hiding STDERR to disable job control
 	# output
 	wait "${!}" 2>/dev/null
+}
+
+# Determine number of jobs to run via the number
+# of CPUs/cores available
+__find_cores () {
+	# Check if /proc is mounted by comparing device numbers of
+	# /proc and / and see if they don't match (ie, /proc is mounted)
+	if [[ "$(stat -c %d%D /proc)" == "$(stat -c %d%D /)" ]] ; then
+		# /proc is not mounted, default to 2 jobs
+		jobs_display="(Default)"
+		jobs=2
+	else
+		# /proc is mounted, check for cpuinfo
+		if [[ ! -f /proc/cpuinfo ]] ; then
+			# /proc/cpuinfo doesn't exist
+			jobs_display="(Default)"
+			jobs=2
+		else
+			# /proc/cpuinfo exists, find total number
+			# of cores to use
+
+			# Store contents of /proc/cpuinfo into
+			# cores_array
+			mapfile -n0 -t cores_array < /proc/cpuinfo
+
+			# For each line, if matched string is found,
+			# add processor number to jobs variable
+			for i in "${cores_array[@]}" ; do
+				if [[ "${i}" == processor$'\t':\ * ]] ; then
+					jobs="${i#processor$'\t': }"
+				fi
+			done
+
+			# Add +1 to jobs since the number of useable cores
+			# starts at 0
+			((jobs++))
+			jobs_display="(/proc/cpuinfo)"
+		fi
+	fi
 }
 
 # Determine which operation should be run by file extension
@@ -815,6 +897,14 @@ __operation_ape () {
 
 }
 
+# If ${jobs} wasn't set upon invocation, check in /proc
+# to see how many jobs should be run
+if [[ -z "${jobs}" ]] ; then
+	__find_cores
+else
+	jobs_display="(User Defined)"
+fi
+
 # Display top banner
 __top_banner
 
@@ -831,18 +921,26 @@ __processed_files_ok
 # the ${total_files[@]} array
 if [[ -f "${wav_files[0]}" ]] ; then
 	total_files+=( "${wav_files[@]}" )
+else
+	wav_files=()
 fi
 
 if [[ -f "${wv_files[0]}" ]] ; then
 	total_files+=( "${wv_files[@]}" )
+else
+	wv_files=()
 fi
 
 if [[ -f "${flac_files[0]}" ]] ; then
 	total_files+=( "${flac_files[@]}" )
+else
+	flac_files=()
 fi
 
 if [[ -f "${ape_files[0]}" ]] ; then
 	total_files+=( "${ape_files[@]}" )
+else
+	ape_files=()
 fi
 
 # Length of the total number of music images to split
@@ -870,6 +968,8 @@ else
 		__print_ok ; __newline
 	fi
 fi
+
+__operation_summary
 
 # Restore old stty settings, make stty happy by redirecting /dev/stderr
 stty ${old_stty} < /dev/stderr
