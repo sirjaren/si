@@ -581,8 +581,11 @@ __split_cue () {
 			fi
 		done
 
-		# Create the new array for the current file to split
-		printf "%s\n%s\n" "${cue_header[@]}" "${new_cue[@]}" > "${dir}/[${cue_iteration}]_$$_tmp_si_split.cue"
+		# Add the CUE file (that was just split/obtained) to a new array as a
+		# single index.  This will be used to loop over (each index is a CUE
+		# file to process).  The quoted 'printf' command allows us to store
+		# the CUE header and the entire ${new_cue} array as a single index
+		multi_cue+=( "$(printf "%s\n%s\n" "${cue_header[@]}" "${new_cue[@]}")" )
 
 		# Unset all the used indices
 		for index in "${file_indices[@]}" ; do
@@ -617,10 +620,6 @@ __artist_from_cue () {
 	if [[ "${line}" == PERFORMER* ]] ; then
 		ARTIST="${line#*\"}"
 		ARTIST="${ARTIST%\"}"
-
-		if [[ -z "${ARTIST}" ]] ; then
-			ARTIST="unknown_artist"
-		fi
 	fi
 }
 
@@ -630,10 +629,6 @@ __album_from_cue () {
 	if [[ "${line}" == TITLE* ]] ; then
 		ALBUM="${line#*\"}"
 		ALBUM="${ALBUM%\"}"
-
-		if [[ -z "${ALBUM}" ]] ; then
-			ALBUM="unknown_album"
-		fi
 	fi
 }
 
@@ -642,10 +637,6 @@ __date_from_cue () {
 	# Grab DATE tag
 	if [[ "${line}" == 'REM DATE'* ]] ; then
 		DATE="${line#* * }"
-
-		if [[ -z "${DATE}" ]] ; then
-			DATE="unknown_date"
-		fi
 	fi
 }
 
@@ -656,16 +647,48 @@ __genre_from_cue () {
 		GENRE="${line#* * }"
 		GENRE="${GENRE#\"}"
 		GENRE="${GENRE%\"}"
-
-		if [[ -z "${GENRE}" ]] ; then
-			GENRE="unknown_genre"
-		fi
 	fi
 }
 
 # Create split files directory using tags obtained from the CUE file
 __create_split_dir () {
-	full_split_dir="${split_dir}/${ARTIST}/${DATE} - ${ALBUM}"
+	# If the tags to use for directory names are NULL, set placeholder values
+	#
+	# We set a temporary tag to use to make the directory heirarchy in order to
+	# not pollute testing against NULL tag values when setting the tags for the
+	# split FLAC files
+
+	if [[ -z "${ARTIST}" ]] ; then
+		dir_artist="[Unknown Artist]"
+	else
+		dir_artist="${ARTIST}"
+	fi
+
+	# Both DATE and ALBUM are NULL
+	if [[ -z "${DATE}" && -z "${ALBUM}" ]] ; then
+		dir_date="[0000] - "
+		dir_album="[Unknown Album]"
+
+	# Only DATE is NULL.  Don't display DATE
+	elif [[ -z "${DATE}" && -n "${ALBUM}" ]] ; then
+		dir_date=""
+		dir_album="${ALBUM}"
+
+	# Only ALBUM is NULL
+	elif [[ -z "${ALBUM}" && -n "${DATE}" ]] ; then
+		dir_date="[${DATE}] - "
+		dir_album="[Unknown Album]"
+
+	# Both DATE and ALBUM are NOT NULL
+	else
+		dir_date="[${DATE}] - "
+		dir_album="${ALBUM}"
+	fi
+
+	# This variable is used for splitting and tagging files as well
+	full_split_dir="${split_dir}/${dir_artist}/${dir_date}${dir_album}"
+
+	# Create the directories
 	mkdir -p "${full_split_dir}"
 }
 
@@ -694,9 +717,9 @@ __multiple_files_one_cue () {
 	# file listed in the separate CUE files
 	__split_cue
 
-	for cue in "${dir}/"\[[0-9]*\]_[0-9]*_tmp_si_split.cue ; do
-		# Load and store CUE into array
-		__cue_array
+	for cue in "${multi_cue[@]}" ; do
+		# Load up CUE into array
+		mapfile -n0 -t cue_array <<< "${cue}"
 
 		# Run through CUE file (from array) and obtain album
 		# tags and file to process
@@ -770,9 +793,9 @@ __multiple_files_multiple_cues () {
 		# file listed in the separate CUE files
 		__split_cue
 
-		for cue in "${dir}/"\[[0-9]*\]_[0-9]*_tmp_si_split.cue ; do
-			# Load and store CUE into array
-			__cue_array
+		for cue in "${multi_cue[@]}" ; do
+			# Load up CUE into array
+			mapfile -n0 -t cue_array <<< "${cue}"
 
 			# Run through CUE file (from array) and obtain album
 			# tags and file to process
@@ -831,10 +854,6 @@ __one_image_file () {
 
 	# Load and store CUE filenames
 	__cue_filename
-
-	# Grab the CUE header to allow each separate CUE to have the
-	# requisite information
-	__cue_header
 
 	# Check for missing files that are in ${file_array[@]}
 	__check_missing_files
@@ -994,7 +1013,7 @@ __high_resolution () {
 				# Obtain just the time (eg 11:22:33) from the INDEX line
 				index="${line##* }"
 
-				# Store the INDEX line withou the time (eg.
+				# Store the INDEX line without the time (eg.
 				# '    INDEX 01')
 				index_string="${line% *}"
 
@@ -1022,7 +1041,7 @@ __high_resolution () {
 				# milliseconds
 				if [[ "${nnn}" -gt 999 ]] ; then
 					# Add the first digit of milliseconds to seconds variable
-					printf -v ss "%02d" "$(( 10#$(( ${ss#0} + ${nnn%???} )) ))"
+					printf -v ss "%02d" "$(( 10#$((  ${ss#0} + ${nnn%???}  )) ))"
 
 					# Cull the first digit of milliseconds
 					nnn="${nnn#?}"
@@ -1036,14 +1055,8 @@ __high_resolution () {
 			fi
 		done
 
-		# Create a temporaray CUE file for shnsplit to read from using the new
-		# millisecond values
-		#
-		# Temporary CUE location
-		tmp_cue="${dir}/[${iteration}]_$$_tmp_si_high_res.cue"
-
-		# Create the CUE file
-		printf "%s\n" "${high_res_cue[@]}" > "${tmp_cue}"
+		# Set the CUE array to the high resolution version created
+		cue_array=( "${high_res_cue[@]}" )
 	fi
 }
 
@@ -1053,12 +1066,6 @@ __split_file () {
 	# SIGINT.  This function will receive EXIT from the kill in the previous
 	# trap
 	trap __kill_jobs EXIT
-
-	# If there isn't a temporary CUE file, then default to using the CUE file
-	# found earlier
-	if [[ ! -f "${tmp_cue}" ]] ; then
-		tmp_cue="${cue}"
-	fi
 
 	# Obtain the first TRACKNUMBER in the CUE array.  Used to configure
 	# what number the first split file should be via 'shnsplit'
@@ -1078,7 +1085,9 @@ __split_file () {
 	#   -O always                 # Always overwrite files (if applicable)
 	#   -q                        # Suppress STDOUT (STDERR still shown)
 	#   -o "${shn_flac_enc}"      # Use defined FLAC encoder
-	#   -f "${tmp_cue}"           # CUE file location
+	#   -f /dev/stidn < <( )      # CUE file to use.  The path to '/dev/stdin'
+	#                               alleviates the need to use a physical CUE
+	#                               file
 	#   -c ${TRACKNUMBER}         # Start output of filename TRACKNUMBER at
 	#                               specified TRACKNUMBER in the event that the
 	#                               CUE is part of multiple CUE files to split
@@ -1094,7 +1103,7 @@ __split_file () {
 		-O always \
 		-q \
 		-o "${shn_flac_enc}" \
-		-f "${tmp_cue}" \
+		-f /dev/stdin < <(printf "%s\n" "${cue_array[@]}") \
 		-c "${TRACKNUMBER}" \
 		-t '%n - %t' \
 		-d "${full_split_dir}" \
@@ -1133,29 +1142,57 @@ __tag_files () {
 		fi
 	done
 
-	for file in "${files_to_tag[@]}" ; do
+	# Build the album tags to set (for metaflac) based on which tags were found.
+	# The indices for each of the tags is as follows:
+	#   [0] TITLE
+	#   [1] ARTIST
+	#   [2] ALBUM
+	#   [3] DATE
+	#   [4] TRACKNUMBER
+	#   [5] GENRE
+	#
+	# [1] ARTIST
+	if [[ -n "${ARTIST}" ]] ; then
+		metaflac_tags[1]="--set-tag=ARTIST=${ARTIST}"
+	fi
 
-		# Grab TRACKNUMBER from current filename
-		TRACKNUMBER="${file%% - *}"
+	# [2] ALBUM
+	if [[ -n "${ALBUM}" ]] ; then
+		metaflac_tags[2]="--set-tag=ALBUM=${ALBUM}"
+	fi
+
+	# [3] DATE
+	if [[ -n "${DATE}" ]] ; then
+		metaflac_tags[3]="--set-tag=DATE=${DATE}"
+	fi
+
+	# [5] GENRE
+	if [[ -n "${GENRE}" ]] ; then
+		metaflac_tags[6]="--set-tag=GENRE=${GENRE}"
+	fi
+
+	for file in "${files_to_tag[@]}" ; do
 
 		# Grab TITLE from current filename
 		TITLE="${file#* - }"
-		TITLE="${TITLE%.flac}"
+		metaflac_tags[0]="--set-tag=TITLE=${TITLE%.flac}"
+
+		# Grab TRACKNUMBER from current filename
+		metaflac_tags[4]="--set-tag=TRACKNUMBER=${file%% - *}"
 
 		# Tag the current FLAC file with the obtained tags
 		metaflac \
-			--set-tag=TITLE="${TITLE}" \
-			--set-tag=ARTIST="${ARTIST}" \
-			--set-tag=ALBUM="${ALBUM}" \
-			--set-tag=DATE="${DATE}" \
-			--set-tag=TRACKNUMBER="${TRACKNUMBER}" \
-			--set-tag=GENRE="${GENRE}" \
+			"${metaflac_tags[@]}" \
 			"${full_split_dir}/${file}"
 	done
 
 	# Clear ${files_to_tag} array in the event there are multiple files to split
 	# in one directory
 	files_to_tag=()
+
+	# Clear ${metaflac_tags} array in order to not pollute the tags to set in
+	# the event there are multiple files to split in one directory
+	metaflac_tags=()
 }
 
 # Split music images
