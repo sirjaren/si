@@ -42,7 +42,7 @@ stty -ctlecho 2>/dev/null
 printf "\033[?25l"
 
 # Current program version
-version="0.1"
+version="0.2"
 
 # Colors
 blue="\033[34m"
