@@ -762,6 +762,27 @@ __genre_from_cue () {
 	fi
 }
 
+# Check if CUE is neither ASCII or UTF8.  If not, then try to encode to
+# UTF8, to help process files.  Normally, if not ASCII or UTF8, the encoding
+# is CP1251 (Russian/Cyrillic), so we'll use CP1251 as the encoding from
+# parameter to 'iconv'
+__check_encoding () {
+	# Use 'file' to get a basic encoding of the file (not really reliable)
+	encoding="$(file -ibN - < <(printf "%s\n" "${cue_array[@]}"))"
+
+	# Strip mimetype and leave only the charset
+	encoding="${encoding##*=}"
+
+	# If the encoding is not ASCII or UTF-8, then convert the CUE array to UTF-8
+	if [[ "${encoding}" != "us-ascii" || "${encoding}" != "utf-8" ]] ; then
+		# Convert CUE array from CP1251 (hopefully) to UTF-8
+		mapfile -n0 -t cue_array < \
+		<(
+			iconv --from-code CP1251 --to-code utf-8 <(printf "%s\n" "${cue_array[@]}")
+		)
+	fi
+}
+
 # Run through CUE array and add an extra period to the end of each track TITLE
 # if that TITLE ends with a period (to prevent 'shnsplit' from NOT adding a
 # period)
@@ -850,6 +871,12 @@ __operation_split () {
 
 	# Set the CUE information from positional parameters into the CUE array
 	mapfile -n0 -t cue_array <<< "${@#*::::@@si@@:::: }"
+
+	# Check if CUE is neither ASCII or UTF8.  If not, then try to encode to
+	# UTF8, to help process files.  Normally, if not ASCII or UTF8, the encoding
+	# is CP1251 (Russian/Cyrillic), so we'll use CP1251 as the encoding from
+	# parameter to 'iconv'
+	__check_encoding
 
 	# Run through CUE array and add an extra period to the end of each track
 	# TITLE if that TITLE ends with a period (to prevent 'shnsplit' from NOT
