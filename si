@@ -840,7 +840,8 @@ __check_title_period () {
 # Characters replaced:
 #   ` -> '
 __replace_characters () {
-	cue_array=( "${cue_array[@]//`/\'}" )
+	character="'"
+	cue_array=( "${cue_array[@]//\`/${character}}" )
 }
 
 # Create split files directory using tags obtained from the CUE file
