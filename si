@@ -737,7 +737,10 @@ __current_file_from_cue () {
 __artist_from_cue () {
 	# Grab ARTIST tag
 	if [[ "${line}" == PERFORMER* ]] ; then
-		ARTIST="${line#*\"}"
+		ARTIST="${line#* }"
+
+		# Remove quotes (if applicable)
+		ARTIST="${ARTIST#\"}"
 		ARTIST="${ARTIST%\"}"
 	fi
 }
@@ -746,7 +749,10 @@ __artist_from_cue () {
 __album_from_cue () {
 	# Grab ALBUM tag
 	if [[ "${line}" == TITLE* ]] ; then
-		ALBUM="${line#*\"}"
+		ALBUM="${line#* }"
+
+		# Remove quotes (if applicable)
+		ALBUM="${ALBUM#\"}"
 		ALBUM="${ALBUM%\"}"
 	fi
 }
@@ -755,7 +761,11 @@ __album_from_cue () {
 __date_from_cue () {
 	# Grab DATE tag
 	if [[ "${line}" == 'REM DATE'* ]] ; then
-		DATE="${line#* * }"
+		DATE="${line##* }"
+
+		# Remove quotes (if applicable)
+		DATE="${DATE#\"}"
+		DATE="${DATE%\"}"
 	fi
 }
 
@@ -764,6 +774,8 @@ __genre_from_cue () {
 	# Grab GENRE tag
 	if [[ "${line}" == 'REM GENRE'* ]] ; then
 		GENRE="${line#* * }"
+
+		# Remove quotes (if applicable)
 		GENRE="${GENRE#\"}"
 		GENRE="${GENRE%\"}"
 	fi
@@ -1112,7 +1124,6 @@ __determine_operation () {
 					# directories have multiple files in a CUE
 					multi_cue=()
 				done
-
 			else
 				# Grab the path to the only CUE file and store it a variable
 				cue=( "${dir}"/*.[Cc][Uu][Ee] )
@@ -1134,14 +1145,71 @@ __determine_operation () {
 				# file listed in the separate CUE files
 				__split_cue
 
-				for cue in "${multi_cue[@]}" ; do
+				# Initialize ${c} to zero
+				c=0
+
+				# If there are more than one CUE files (that were split),
+				# determine the starting number split files start at from
+				# the '-c' argument to 'shnsplit'
+				if (( ${#multi_cue[@]} > 1 )) ; then
+					# For each CUE that were split and stored as separate
+					# indices, determine the operation to run
+					for cue in "${multi_cue[@]}" ; do
+						# Load the split CUE into a temporary array
+						mapfile -n0 -t tmp_cue <<< "${cue}"
+
+						# Run through the CUE array and grab only the TRACK
+						# lines, storing into ${track_array}
+						for i in "${tmp_cue[@]}" ; do
+							if [[ "${i}" == '  TRACK'* ]] ; then
+								track_array+=( "${i}" )
+							fi
+						done
+
+						# The split CUE is stored as a single index in an
+						# array
+						cue=( "$(printf "%s\n" "${cue}")" )
+
+						# Add the operation to run to the array.  '-c' is
+						# ${c} + 1
+						operations+=( "$(( ${c} + 1 )) ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
+
+						# Add the number of TRACKs found in the CUE array
+						# to ${c}
+						c=$(( ${c} + ${#track_array[@]} ))
+
+						# Clear ${track_array} to not pollute next loop (if
+						# applicable)
+						track_array=()
+					done
+				else
+					# Load the split CUE into a temporary array
+					mapfile -n0 -t tmp_cue < "${cue}"
+
+					# Run through the CUE array and grab only the TRACK
+					# lines, storing into ${track_array}
+					for i in "${tmp_cue[@]}" ; do
+						if [[ "${i}" == '  TRACK'* ]] ; then
+							track_array+=( "${i}" )
+						fi
+					done
+
 					# The split CUE is stored as a single index in an
 					# array
-					cue=( "$(printf "%s\n" "${cue}")" )
+					cue=( "$(printf "%s\n" "${multi_cue[@]}")" )
 
-					# Add the operation to run to the array.  '-c' is 1
-					operations+=( "1 ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
-				done
+					# Add the operation to run to the array.  '-c' is
+					# ${c} + 1
+					operations+=( "$(( ${c} + 1 )) ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
+
+					# Add the number of TRACKs found in the CUE array
+					# to ${c}
+					c=$(( ${c} + ${#track_array[@]} ))
+
+					# Clear the total number of TRACKs found from the split CUE array in
+					# order to not pollute the next loop (if applicable)
+					track_array=()
+				fi
 			fi
 
 		# There is only one music image file in the current directory.  The number
@@ -1327,25 +1395,6 @@ __split_file () {
 
 # Tag the split music files
 __tag_files () {
-	# Run through old CUE array and grab the TRACKNUMBER and TITLE tag to
-	# determine which files to tag in the event that previous splitting placed
-	# additional files in the current directory
-	#for line in "${!old_array[@]}" ; do
-	#	if [[ "${old_array[${line}]}" == '    TITLE'* ]] ; then
-	#		# Grab the TRACKNUMBER, located one line above the TITLE line
-	#		TRACKNUMBER="${old_array[$(( ${line} - 1 ))]#*TRACK }"
-	#		TRACKNUMBER="${TRACKNUMBER% *}"
-#
-#			# Grab the TITLE/filename
-#			TITLE="${old_array[${line}]#* TITLE*\"}"
-#			TITLE="${TITLE%\"*}"
-#
-#			# Store the current filename to tag into an array formatted as:
-#			#   TRACKNUMBER - filename.flac
-#			files_to_tag+=( "${TRACKNUMBER} - ${TITLE}.flac" )
-#		fi
-#	done
-
 	# Initialize ${tracknumber_count} to zero
 	local tracknumber_count=0
 
