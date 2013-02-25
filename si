@@ -836,6 +836,13 @@ __check_title_period () {
 	cue_array=( "${check_title_period[@]}" )
 }
 
+# Run through CUE array and replace certain characters
+# Characters replaced:
+#   ` -> '
+__replace_characters () {
+	cue_array=( "${cue_array[@]//`/\'}" )
+}
+
 # Create split files directory using tags obtained from the CUE file
 __create_split_dir () {
 	# If the tags to use for directory names are NULL, set placeholder values
@@ -909,10 +916,14 @@ __operation_split () {
 	# adding a period)
 	__check_title_period
 
+	# Run through CUE array and replace certain characters
+	# Characters replaced:
+	#   ` -> '
+	__replace_characters
+
 	# Run through CUE array and obtain album tags and the current file to
 	# process
 	for line in "${cue_array[@]}" ; do
-
 		# Obtain filename
 		__current_file_from_cue
 
