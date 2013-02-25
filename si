@@ -912,15 +912,18 @@ __operation_split () {
 	# parameter to 'iconv'
 	__check_encoding
 
-	# Run through CUE array and add an extra period to the end of each track
-	# TITLE if that TITLE ends with a period (to prevent 'shnsplit' from NOT
-	# adding a period)
-	__check_title_period
-
 	# Run through CUE array and replace certain characters
 	# Characters replaced:
 	#   ` -> '
 	__replace_characters
+
+	# Run through CUE array and add an extra period to the end of each track
+	# TITLE if that TITLE ends with a period (to prevent 'shnsplit' from NOT
+	# adding a period).  This is done LAST before obtaining tags and splitting
+	# in order to make sure ${old_array} is equal to ${cue_array} (ie, no
+	# more processing being done on ${cue_array} after creating a copy as
+	# ${old_array}
+	__check_title_period
 
 	# Run through CUE array and obtain album tags and the current file to
 	# process
