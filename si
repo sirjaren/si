@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #-------------------------------------------------------------------------------
 # si - Parallel BASH commandline music image splitter to separate FLAC files
 #-------------------------------------------------------------------------------
@@ -28,47 +28,9 @@
 #    1: STDOUT
 #    2: STDERR
 #    3: FIFO process manager
-#-------------------------------------------------------------------------------
-# Enable BASH globstar
-shopt -s globstar
-
-# Store current stty settings
-old_stty="$(stty -g)"
-
-# Prevent Control-C from displaying '^C'.  May already be set
-stty -ctlecho 2>/dev/null
-
-# Hide the cursor
-printf "\033[?25l"
-
-# Current program version
-version="0.2"
-
-# Colors
-blue="\033[34m"
-green="\033[32m"
-red="\033[31m"
-cyan="\033[36m"
-magenta="\033[35m"
-yellow="\033[33m"
-normal="\033[0m"
-
-# Temporary FIFO location
-tmp_fifo="/tmp/split_images_fifo_$$"
-
-# Directory housing music image files
-image_dir="${1%/}"
-
-# Directory where split music file end up
-split_dir="/media/Music_Library/Music/Split Music Files"
-
-# Shnsplit flac encoder to use:
-#  No SEEKTABLE block created
-#  Fastest/Lowest compression: 1
-#  Verify FLAC output (tests integrity)
-#  Output to shnsplit as '%f' which is sent as STDOUT to shnsplit as STDIN
-shn_flac_enc="flac flac --no-seektable -1 -V -o %f -"
-
+#------------------------------------------------------------------------------
+# .: SCRIPT MESSAGES :.
+#------------------------------------------------------------------------------
 # Red message
 __error () {
 	printf "${normal}%s${red}%s${normal}%s" \
@@ -87,6 +49,12 @@ __info () {
 	" " "*" " ${@}"
 }
 
+#== .: END MESSAGES :. ========================================================
+
+
+#------------------------------------------------------------------------------
+# .: BANNERS :.
+#------------------------------------------------------------------------------
 # Top banner displaying invocation settings
 __top_banner () {
 	# If Redo Tags is called, create the necessary spacing
@@ -168,7 +136,7 @@ __operation_summary () {
 	" " "-------------------------+-------------------------"
 
 	#--------------------------------------------------------------------------
-	# :: CLEANUP SECTION ::
+	# .: CLEANUP SECTION :.
 	#--------------------------------------------------------------------------
 	# Restore old stty settings, make stty happy by redirecting /dev/stderr
 	stty ${old_stty} < /dev/stderr
@@ -176,7 +144,57 @@ __operation_summary () {
 	# Restore the cursor
 	printf "\033[?25h"
 
-	#== :: END CLEANUP SECTION :: =============================================
+	#== .: END CLEANUP SECTION :. =============================================
+}
+
+#== .: END BANNERS :. =========================================================
+
+
+#------------------------------------------------------------------------------
+# .: PROCESSED FILE MESSAGES :.
+#------------------------------------------------------------------------------
+# Print out current file that is being split
+__print_splitting_file () {
+	# This is the maximum length of a string to be displayed based on column width,
+	# obtained via the number of columns minus the length of displayed characters:
+	#
+	#             ${columns}:  Width of terminal
+	#          ${#iteration}:  Length of the # of files processed
+	#  ${total_files_length}:  Length of the total # of files to split
+	#                     29:  Length of:
+	#                            [ Splitting Image ] (19)
+	#                            5 Spaces
+	#                            3 Characters: [/]
+	#                            2 Gap and ellipsis (…)
+	max_filename_length="$(( $(__columns) - ${#count} - ${total_files_length} - 29 ))"
+
+	# Create and cull filename if needed returned as ${filename}
+	__filename
+
+	printf "\r${normal}%s${magenta}%s${normal}%s%$(__current_length)s${blue}%s${normal}%s${yellow}%s${normal}%s${blue}%s${normal}%s" \
+	"   " "[${count}/${#total_files[@]}]" " ${filename} " "" "[" " " "Splitting Image" " " "]" " "
+}
+
+# Print ok message
+__print_splitting_ok () {
+	# This is the maximum length of a string to be displayed based on column width,
+	# obtained via the number of columns minus the length of displayed characters:
+	#
+	#             ${columns}:  Width of terminal
+	#          ${#iteration}:  Length of the # of files processed
+	#  ${total_files_length}:  Length of the total # of files to split
+	#                     16:  Length of:
+	#                            [ ok ] (6)
+	#                            5 Spaces
+	#                            3 Characters: [/]
+	#                            2 Gap and ellipsis (…)
+	max_filename_length="$(( $(__columns) - ${#count} - ${total_files_length} - 16 ))"
+
+	# Create and cull filename if needed returned as ${filename}
+	__filename
+
+	printf "\r${normal}%s${magenta}%s${normal}%s%$(__current_length)s${blue}%s${normal}%s${green}%s${normal}%s${blue}%s${normal}%s" \
+	"   " "[${count}/${#total_files[@]}]" " ${filename} " "" "[" " " "ok" " " "]" " "
 }
 
 # Below creates the '[ ok ]' message to print after the info
@@ -206,6 +224,12 @@ __processed_files_ok () {
 	"" "[" " " "ok" " " "]"
 }
 
+#== .: END PROCESSED FILE MESSAGES :. =========================================
+
+
+#------------------------------------------------------------------------------
+# .: VARIOUS COMMANDS :.
+#------------------------------------------------------------------------------
 # Prints the number of newlines specified
 # by ${1}
 __newline () {
@@ -221,53 +245,6 @@ __newline () {
 	for (( count=0; count < ${newlines}; count++ )) ; do
 		printf "\n"
 	done
-}
-
-#-------------------------------------------------------------------------------
-#  PROCESSED FILE MESSAGES
-#-------------------------------------------------------------------------------
-# Print out current file that is being split
-__print_splitting_file () {
-	# This is the maximum length of a string to be displayed based on column width,
-	# obtained via the number of columns minus the length of displayed characters:
-	#
-	#             ${columns}:  Width of terminal
-	#          ${#iteration}:  Length of the # of files processed
-	#  ${total_files_length}:  Length of the total # of files to split
-	#                     29:  Length of:
-	#                            [ Splitting Image ] (19)
-	#                            5 Spaces
-	#                            3 Characters: [/]
-	#                            2 Gap and ellipsis (…)
-	max_filename_length="$(( $(__columns) - ${#count} - ${total_files_length} - 29 ))"
-
-	# Create and cull filename if needed returned as ${filename}
-	__filename
-
-	printf "\r${normal}%s${magenta}%s${normal}%s%$(__current_length)s${blue}%s${normal}%s${yellow}%s${normal}%s${blue}%s${normal}%s" \
-	"   " "[${count}/${#total_files[@]}]" " ${filename} " "" "[" " " "Splitting Image" " " "]" " "
-}
-
-# Print ok message
-__print_ok () {
-	# This is the maximum length of a string to be displayed based on column width,
-	# obtained via the number of columns minus the length of displayed characters:
-	#
-	#             ${columns}:  Width of terminal
-	#          ${#iteration}:  Length of the # of files processed
-	#  ${total_files_length}:  Length of the total # of files to split
-	#                     16:  Length of:
-	#                            [ ok ] (6)
-	#                            5 Spaces
-	#                            3 Characters: [/]
-	#                            2 Gap and ellipsis (…)
-	max_filename_length="$(( $(__columns) - ${#count} - ${total_files_length} - 16 ))"
-
-	# Create and cull filename if needed returned as ${filename}
-	__filename
-
-	printf "\r${normal}%s${magenta}%s${normal}%s%$(__current_length)s${blue}%s${normal}%s${green}%s${normal}%s${blue}%s${normal}%s" \
-	"   " "[${count}/${#total_files[@]}]" " ${filename} " "" "[" " " "ok" " " "]" " "
 }
 
 # This is the function to run when a user invokes SIGINT during an operation
@@ -405,6 +382,12 @@ __clear_tmp_fd () {
 	rm -f "${tmp_fifo}"
 }
 
+#== .: END VARIOUS COMMANDS :. ================================================
+
+
+#------------------------------------------------------------------------------
+# .: PARALLEL FUNCTION :.
+#------------------------------------------------------------------------------
 # Function to run operations in parallel
 __run_parallel () {
 	# Forces count to start at 0, in the event that
@@ -466,6 +449,53 @@ __run_parallel () {
 	wait
 }
 
+#== .: END PARALLEL FUNCTION :. ===============================================
+
+
+#------------------------------------------------------------------------------
+# .: ERROR FUNCTIONS :.
+#------------------------------------------------------------------------------
+# Check for missing files that are in ${file_array[@]}
+__check_missing_files () {
+	# Check if all the files in the above array exist in the current
+	# directory
+	if [[ -n "${files_dont_exist[@]}" ]] ; then
+		__error "In the directory:" ; __newline
+
+		__error
+			printf "%s${cyan}%s${normal}\n" \
+			"  " "${dir}"
+
+		__error ; __newline
+		__error "The CUE file:" ; __newline
+
+		__error
+			printf "%s${cyan}%s${normal}\n" \
+			"  " "${cue##*/}"
+
+		__error ; __newline
+		__error "Specifies one or more files to split that are NOT avaiable in the same" ; __newline
+		__error "directory as the CUE file.  The missing file(s):" ; __newline
+
+		for file in "${files_dont_exist[@]}" ; do
+			printf "%s${red}%s${normal}%s${cyan}%s${normal}\n" \
+			" " "*" "   " "${file}"
+		done
+
+		exit 1
+	fi
+
+	# Clear ${file_array} from __cue_filename as this function is the only
+	# function that uses it
+	file_array=()
+}
+
+#== .: END ERROR FUNCTIONS :. =================================================
+
+
+#------------------------------------------------------------------------------
+# .: CUE FUNCTIONS :.
+#------------------------------------------------------------------------------
 # Grab the CUE header to allow each separate CUE to have the requisite
 # information
 __cue_header () {
@@ -549,44 +579,9 @@ __cue_filename () {
 	done
 }
 
-# Check for missing files that are in ${file_array[@]}
-__check_missing_files () {
-	# Check if all the files in the above array exist in the current
-	# directory
-	if [[ -n "${files_dont_exist[@]}" ]] ; then
-		__error "In the directory:" ; __newline
-
-		__error
-			printf "%s${cyan}%s${normal}\n" \
-			"  " "${dir}"
-
-		__error ; __newline
-		__error "The CUE file:" ; __newline
-
-		__error
-			printf "%s${cyan}%s${normal}\n" \
-			"  " "${cue##*/}"
-
-		__error ; __newline
-		__error "Specifies one or more files to split that are NOT avaiable in the same" ; __newline
-		__error "directory as the CUE file.  The missing file(s):" ; __newline
-
-		for file in "${files_dont_exist[@]}" ; do
-			printf "%s${red}%s${normal}%s${cyan}%s${normal}\n" \
-			" " "*" "   " "${file}"
-		done
-
-		exit 1
-	fi
-
-	# Clear ${file_array} from __cue_filename as this function is the only
-	# function that uses it
-	file_array=()
-}
-
 # Split CUE file into separate CUE files, each CUE file separated by FILE.  Each
 # file found in a CUE is separated into a separate CUE file
-__split_cue () {
+__cue_split () {
 	# Initialize cue file iteration to zero
 	cue_iteration=0
 
@@ -666,7 +661,7 @@ __split_cue () {
 }
 
 # Obtain filename from current CUE file
-__current_file_from_cue () {
+__cue_current_filename () {
 	# Grab file to process
 	if [[ "${line}" == *FILE* ]] ; then
 		file="${line#*FILE \"}"
@@ -734,7 +729,7 @@ __current_file_from_cue () {
 }
 
 # Obtain ARTIST from current CUE file
-__artist_from_cue () {
+__cue_artist () {
 	# Grab ARTIST tag
 	if [[ "${line}" == PERFORMER* ]] ; then
 		ARTIST="${line#* }"
@@ -746,7 +741,7 @@ __artist_from_cue () {
 }
 
 # Obtain ALBUM from current CUE file
-__album_from_cue () {
+__cue_album () {
 	# Grab ALBUM tag
 	if [[ "${line}" == TITLE* ]] ; then
 		ALBUM="${line#* }"
@@ -758,7 +753,7 @@ __album_from_cue () {
 }
 
 # Obtain DATE from current CUE file
-__date_from_cue () {
+__cue_date () {
 	# Grab DATE tag
 	if [[ "${line}" == 'REM DATE'* ]] ; then
 		DATE="${line##* }"
@@ -770,7 +765,7 @@ __date_from_cue () {
 }
 
 # Obtain GENRE from current CUE file
-__genre_from_cue () {
+__cue_genre () {
 	# Grab GENRE tag
 	if [[ "${line}" == 'REM GENRE'* ]] ; then
 		GENRE="${line#* * }"
@@ -785,7 +780,7 @@ __genre_from_cue () {
 # UTF8, to help process files.  Normally, if not ASCII or UTF8, the encoding
 # is CP1251 (Russian/Cyrillic), so we'll use CP1251 as the encoding from
 # parameter to 'iconv'
-__check_encoding () {
+__cue_encoding () {
 	# Use 'file' to get a basic encoding of the file (not really reliable)
 	encoding="$(file -ibN - < <(printf "%s\n" "${cue_array[@]}"))"
 
@@ -805,7 +800,7 @@ __check_encoding () {
 # Run through CUE array and add an extra period to the end of each track TITLE
 # if that TITLE ends with a period (to prevent 'shnsplit' from NOT adding a
 # period)
-__check_title_period () {
+__cue_title_period () {
 	for line in "${cue_array[@]}" ; do
 		if [[ "${line}" == '    TITLE'* ]] ; then
 			# Strip everything but the last character (not including the quotes
@@ -839,438 +834,14 @@ __check_title_period () {
 # Run through CUE array and replace certain characters
 # Characters replaced:
 #   ` -> '
-__replace_characters () {
+__cue_replace_characters () {
 	character="'"
 	cue_array=( "${cue_array[@]//\`/${character}}" )
 }
 
-# Create split files directory using tags obtained from the CUE file
-__create_split_dir () {
-	# If the tags to use for directory names are NULL, set placeholder values
-	#
-	# We set a temporary tag to use to make the directory heirarchy in order to
-	# not pollute testing against NULL tag values when setting the tags for the
-	# split FLAC files
-
-	if [[ -z "${ARTIST}" ]] ; then
-		dir_artist="[Unknown Artist]"
-	else
-		dir_artist="${ARTIST}"
-	fi
-
-	# Both DATE and ALBUM are NULL
-	if [[ -z "${DATE}" && -z "${ALBUM}" ]] ; then
-		dir_date="[0000] - "
-		dir_album="[Unknown Album]"
-
-	# Only DATE is NULL.  Don't display DATE
-	elif [[ -z "${DATE}" && -n "${ALBUM}" ]] ; then
-		dir_date=""
-		dir_album="${ALBUM}"
-
-	# Only ALBUM is NULL
-	elif [[ -z "${ALBUM}" && -n "${DATE}" ]] ; then
-		dir_date="[${DATE}] - "
-		dir_album="[Unknown Album]"
-
-	# Both DATE and ALBUM are NOT NULL
-	else
-		dir_date="[${DATE}] - "
-		dir_album="${ALBUM}"
-	fi
-
-	# This variable is used for splitting and tagging files as well
-	full_split_dir="${split_dir}/${dir_artist}/${dir_date}${dir_album}"
-
-	# Create the directories
-	mkdir -p "${full_split_dir}"
-}
-
-# Operation to split files in parallel, obtaining the information from $@
-__operation_split () {
-	# Let's make sure to kill running children if this function was aborted via
-	# SIGINT.  This function will receive SIGTERM from the kill in the previous
-	# trap
-	trap __kill_jobs EXIT
-
-	# Determine the count for 'shnsplit' used for the '-c' argument from the
-	# positional parameters ($@)
-	shnsplit_count="${@%% ::::@@si@@:::*}"
-
-	# Remove the first parameter '-c' (used for finding ${dir} and the CUE array
-	tmp_parameter="${@#*::::@@si@@:::: }"
-
-	# Set up current directory from ${tmp_parameter}
-	dir="${tmp_parameter% ::::@@si@@::::*}"
-
-	# Set the CUE information from ${tmp_parameter} into the CUE array
-	mapfile -n0 -t cue_array <<< "${tmp_parameter#*::::@@si@@:::: }"
-
-	# Check if CUE is neither ASCII or UTF8.  If not, then try to encode to
-	# UTF8, to help process files.  Normally, if not ASCII or UTF8, the encoding
-	# is CP1251 (Russian/Cyrillic), so we'll use CP1251 as the encoding from
-	# parameter to 'iconv'
-	__check_encoding
-
-	# Run through CUE array and replace certain characters
-	# Characters replaced:
-	#   ` -> '
-	__replace_characters
-
-	# Run through CUE array and add an extra period to the end of each track
-	# TITLE if that TITLE ends with a period (to prevent 'shnsplit' from NOT
-	# adding a period).  This is done LAST before obtaining tags and splitting
-	# in order to make sure ${old_array} is equal to ${cue_array} (ie, no
-	# more processing being done on ${cue_array} after creating a copy as
-	# ${old_array}
-	__check_title_period
-
-	# Run through CUE array and obtain album tags and the current file to
-	# process
-	for line in "${cue_array[@]}" ; do
-		# Obtain filename
-		__current_file_from_cue
-
-		# Obtain ARTIST
-		__artist_from_cue
-
-		# Obtain ALBUM
-		__album_from_cue
-
-		# Obtain DATE
-		__date_from_cue
-
-		# Obtain GENRE
-		__genre_from_cue
-	done
-
-	# Set ${i} from the file found from __current_file_from_cue
-	i="${file}"
-
-	# Check if file has a higher resolution than a CD (eg. greater than
-	# 16bit/44.1kHz) and if so, convert the CUE sheet array from frames
-	# per second to milliseconds to allow shnsplit to work correctly
-	__high_resolution
-
-	# Display current file being split
-	__print_splitting_file
-
-	# Create split files directory using tags obtained from the CUE array
-	__create_split_dir
-
-	# Split image file with 'shnsplit' and send to background to allow killing
-	# on SIGTERM
-	__split_file &
-
-	# Wait on background process and return exit code of said process
-	wait "${!}"
-
-	# Exit code 130 is SIGINT so only check for exit code '1'
-	if [[ "${?}" -eq 1 ]] ; then
-		__warn "Failed to split ${i#**/}." ; __newline
-		__warn "${i#**/} may be corrupt." ; __newline
-	fi
-
-	# Tag the split music files
-	__tag_files
-
-	# Print newline into file descriptor after completion
-	__newline >&3
-}
-
-# Obtain total files to process in the current directory
-__total_files_directory () {
-	# Obtain all the possible kinds of image files in the current directory
-	tmp_wav_files=( "${dir}"/*.[Ww][Aa][Vv] )
-	tmp_wv_files=( "${dir}"/*.[Ww][Vv] )
-	tmp_flac_files=( "${dir}"/*.[Ff][Ll][Aa][Cc] )
-	tmp_ape_files=( "${dir}"/*.[Aa][Pp][Ee] )
-
-	# Test if there were any of the above file formats found, and if so add them
-	# to the ${total_files[@]} array
-	if [[ -f "${tmp_wav_files[0]}" ]] ; then
-		tmp_total_files+=( "${tmp_wav_files[@]}" )
-	fi
-
-	if [[ -f "${tmp_wv_files[0]}" ]] ; then
-		tmp_total_files+=( "${tmp_wv_files[@]}" )
-	fi
-
-	if [[ -f "${tmp_flac_files[0]}" ]] ; then
-		tmp_total_files+=( "${tmp_flac_files[@]}" )
-	fi
-
-	if [[ -f "${tmp_ape_files[0]}" ]] ; then
-		tmp_total_files+=( "${tmp_ape_files[@]}" )
-	fi
-
-	# Obtain all the CUE files in the current directory
-	cue_files=( "${dir}"/*.[Cc][Uu][Ee] )
-
-	if [[ ! -f "${cue_files[0]}" ]] ; then
-		__newline 2 ; __error "In the directory:" ; __newline
-
-		__error
-			printf "%s${cyan}%s${normal}\n" \
-			"  " "${dir}"
-
-		__error ; __newline
-		__error "There doesn't appear to be a CUE file in the above directory!"
-		__newline 2
-
-		exit 1
-	fi
-}
-
-# Determine operation(s) to run
-__determine_operation () {
-	# Run through the total directories, determining which operation should be
-	# performed based on the files found in each directory
-	for dir in "${total_directories[@]}" ; do
-		# Obtain total files to process in the current directory: ${dir}
-		__total_files_directory
-
-		# Check the number of CUE file and music image files in the current
-		# directory, running a certain operation depending on the number(s)
-		# found in the current directory
-		#
-		# If the number of music image files is GREATER than one
-		if [[ ${#tmp_total_files[@]} -gt 1 ]] ; then
-
-			# If the number of CUE files is GREATER than one
-			if [[ ${#cue_files[@]} -gt 1 ]] ; then
-
-				# Obtain all the CUE files in the current directory
-				cue_files=( "${dir}"/*.[Cc][Uu][Ee] )
-
-				for cue in "${cue_files[@]}" ; do
-					# Load and store CUE into array
-					__cue_array
-
-					# Load and store CUE filenames
-					__cue_filename
-
-					# Check for missing files that are in ${file_array[@]}
-					__check_missing_files
-				done
-
-				# Initialize ${c} to zero
-				c=0
-
-				for cue in "${cue_files[@]}" ; do
-					# Load and store CUE into array
-					__cue_array
-
-					# Grab the CUE header to allow each separate CUE to have the
-					# requisite information
-					__cue_header
-
-					# Split CUE file in array into separate CUE files to be used to split each
-					# file listed in the separate CUE files
-					__split_cue
-
-					# If there are more than one CUE files (that were split),
-					# determine the starting number split files start at from
-					# the '-c' argument to 'shnsplit'
-					if (( ${#multi_cue[@]} > 1 )) ; then
-						# Initialize ${d} to zero
-						d=0
-
-						# For each CUE that were split and stored as separate
-						# indices, determine the operation to run
-						for cue in "${multi_cue[@]}" ; do
-							# Load the split CUE into a temporary array
-							mapfile -n0 -t tmp_cue <<< "${cue}"
-
-							# Run through the CUE array and grab only the TRACK
-							# lines, storing into ${track_array}
-							for i in "${tmp_cue[@]}" ; do
-								if [[ "${i}" == '  TRACK'* ]] ; then
-									track_array+=( "${i}" )
-								fi
-							done
-
-							# The split CUE is stored as a single index in an
-							# array
-							cue=( "$(printf "%s\n" "${cue}")" )
-
-							# Add the operation to run to the array.  '-c' is
-							# ${d} + 1
-							operations+=( "$(( ${d} + 1 )) ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
-
-							# Add the number of TRACKs found in the CUE array
-							# to ${d}
-							d=$(( ${d} + ${#track_array[@]} ))
-
-							# Clear ${track_array} to not pollute next loop (if
-							# applicable)
-							track_array=()
-						done
-					else
-						# Load the split CUE into a temporary array
-						mapfile -n0 -t tmp_cue < "${cue}"
-
-						# Run through the CUE array and grab only the TRACK
-						# lines, storing into ${track_array}
-						for i in "${tmp_cue[@]}" ; do
-							if [[ "${i}" == '  TRACK'* ]] ; then
-								track_array+=( "${i}" )
-							fi
-						done
-
-						# The split CUE is stored as a single index in an
-						# array
-						cue=( "$(printf "%s\n" "${multi_cue[@]}")" )
-
-						# Add the operation to run to the array.  '-c' is
-						# ${c} + 1
-						operations+=( "$(( ${c} + 1 )) ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
-
-						# Add the number of TRACKs found in the CUE array
-						# to ${c}
-						c=$(( ${c} + ${#track_array[@]} ))
-
-						# Clear the total number of TRACKs found from the split CUE array in
-						# order to not pollute the next loop (if applicable)
-						track_array=()
-					fi
-
-					# Clear the multiple CUE array in the event that multiple
-					# directories have multiple files in a CUE
-					multi_cue=()
-				done
-			else
-				# Grab the path to the only CUE file and store it a variable
-				cue=( "${dir}"/*.[Cc][Uu][Ee] )
-
-				# Load and store CUE into array
-				__cue_array
-
-				# Load and store CUE filenames
-				__cue_filename
-
-				# Grab the CUE header to allow each separate CUE to have the
-				# requisite information
-				__cue_header
-
-				# Check for missing files that are in ${file_array[@]}
-				__check_missing_files
-
-				# Split CUE file in array into separate CUE files to be used to split each
-				# file listed in the separate CUE files
-				__split_cue
-
-				# Initialize ${c} to zero
-				c=0
-
-				# If there are more than one CUE files (that were split),
-				# determine the starting number split files start at from
-				# the '-c' argument to 'shnsplit'
-				if (( ${#multi_cue[@]} > 1 )) ; then
-					# For each CUE that were split and stored as separate
-					# indices, determine the operation to run
-					for cue in "${multi_cue[@]}" ; do
-						# Load the split CUE into a temporary array
-						mapfile -n0 -t tmp_cue <<< "${cue}"
-
-						# Run through the CUE array and grab only the TRACK
-						# lines, storing into ${track_array}
-						for i in "${tmp_cue[@]}" ; do
-							if [[ "${i}" == '  TRACK'* ]] ; then
-								track_array+=( "${i}" )
-							fi
-						done
-
-						# The split CUE is stored as a single index in an
-						# array
-						cue=( "$(printf "%s\n" "${cue}")" )
-
-						# Add the operation to run to the array.  '-c' is
-						# ${c} + 1
-						operations+=( "$(( ${c} + 1 )) ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
-
-						# Add the number of TRACKs found in the CUE array
-						# to ${c}
-						c=$(( ${c} + ${#track_array[@]} ))
-
-						# Clear ${track_array} to not pollute next loop (if
-						# applicable)
-						track_array=()
-					done
-				else
-					# Load the split CUE into a temporary array
-					mapfile -n0 -t tmp_cue < "${cue}"
-
-					# Run through the CUE array and grab only the TRACK
-					# lines, storing into ${track_array}
-					for i in "${tmp_cue[@]}" ; do
-						if [[ "${i}" == '  TRACK'* ]] ; then
-							track_array+=( "${i}" )
-						fi
-					done
-
-					# The split CUE is stored as a single index in an
-					# array
-					cue=( "$(printf "%s\n" "${multi_cue[@]}")" )
-
-					# Add the operation to run to the array.  '-c' is
-					# ${c} + 1
-					operations+=( "$(( ${c} + 1 )) ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
-
-					# Add the number of TRACKs found in the CUE array
-					# to ${c}
-					c=$(( ${c} + ${#track_array[@]} ))
-
-					# Clear the total number of TRACKs found from the split CUE array in
-					# order to not pollute the next loop (if applicable)
-					track_array=()
-				fi
-			fi
-
-		# There is only one music image file in the current directory.  The number
-		# of CUE files does not matter since one or more is handled the same way
-		else
-
-			# Grab the path to only one CUE file and store it a variable
-			cue=( "${dir}"/*.[Cc][Uu][Ee] )
-			cue="${cue[0]}"
-
-			# Load and store CUE into array
-			__cue_array
-
-			# Load and store CUE filenames
-			__cue_filename
-
-			# Check for missing files that are in ${file_array[@]}
-			__check_missing_files
-
-			# The CUE is stored as a single index in an array
-			cue=( "$(printf "%s\n" "${cue_array[@]}")" )
-
-			# Add the operation to run to the array.  '-c' is 1
-			operations+=( "1 ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
-
-			# Clear arrays below in the event other files may be found.  This
-			# is explicitly called on this operation because the multiple files
-			# operations already clear the arrays when calling '__split_cue'
-			cue=()
-			cue_array=()
-			file_array=()
-		fi
-
-		# Clear the total files found for this directory so it doesn't
-		# pollute the next loop
-		tmp_total_files=()
-
-		# Clear the multiple CUE array in the event that multiple
-		# directories have multiple files in a CUE
-		multi_cue=()
-	done
-}
-
 # Check for high resolution file and convert the INDEX time to milliseconds if
 # necessary
-__high_resolution () {
+__cue_resolution () {
 	# Obtain sample rate and bit depth from current file.  The order in which
 	# the type of formats displayed is not governed by the order it was called
 	# under '-show-entries'.  The order will always show 'sample_fmt' before
@@ -1345,6 +916,409 @@ __high_resolution () {
 		# Set the CUE array to the high resolution version created
 		cue_array=( "${high_res_cue[@]}" )
 	fi
+}
+
+#== .: END CUE COMMANDS :. ====================================================
+
+
+#------------------------------------------------------------------------------
+# .: PRELIMINARY OPERATIONS :.
+#------------------------------------------------------------------------------
+# Obtain total files to process in the current directory
+__total_files_directory () {
+	# Obtain all the possible kinds of image files in the current directory
+	tmp_wav_files=( "${dir}"/*.[Ww][Aa][Vv] )
+	tmp_wv_files=( "${dir}"/*.[Ww][Vv] )
+	tmp_flac_files=( "${dir}"/*.[Ff][Ll][Aa][Cc] )
+	tmp_ape_files=( "${dir}"/*.[Aa][Pp][Ee] )
+
+	# Test if there were any of the above file formats found, and if so add them
+	# to the ${total_files[@]} array
+	if [[ -f "${tmp_wav_files[0]}" ]] ; then
+		tmp_total_files+=( "${tmp_wav_files[@]}" )
+	fi
+
+	if [[ -f "${tmp_wv_files[0]}" ]] ; then
+		tmp_total_files+=( "${tmp_wv_files[@]}" )
+	fi
+
+	if [[ -f "${tmp_flac_files[0]}" ]] ; then
+		tmp_total_files+=( "${tmp_flac_files[@]}" )
+	fi
+
+	if [[ -f "${tmp_ape_files[0]}" ]] ; then
+		tmp_total_files+=( "${tmp_ape_files[@]}" )
+	fi
+
+	# Obtain all the CUE files in the current directory
+	cue_files=( "${dir}"/*.[Cc][Uu][Ee] )
+
+	if [[ ! -f "${cue_files[0]}" ]] ; then
+		__newline 2 ; __error "In the directory:" ; __newline
+
+		__error
+			printf "%s${cyan}%s${normal}\n" \
+			"  " "${dir}"
+
+		__error ; __newline
+		__error "There doesn't appear to be a CUE file in the above directory!"
+		__newline 2
+
+		exit 1
+	fi
+}
+
+# Find all the various audio files to process, storing the found files in one
+# centralized array
+__obtain_audio_files () {
+	wav_files=( "${image_dir}"/**/*.[Ww][Aa][Vv] )
+	wv_files=( "${image_dir}"/**/*.[Ww][Vv] )
+	flac_files=( "${image_dir}"/**/*.[Ff][Ll][Aa][Cc] )
+	ape_files=( "${image_dir}"/**/*.[Aa][Pp][Ee] )
+
+	# Test if there were any of the above file formats found, and if so add them
+	# to the ${total_files[@]} array
+	if [[ -f "${wav_files[0]}" ]] ; then
+		total_files+=( "${wav_files[@]}" )
+	else
+		wav_files=()
+	fi
+
+	if [[ -f "${wv_files[0]}" ]] ; then
+		total_files+=( "${wv_files[@]}" )
+	else
+		wv_files=()
+	fi
+
+	if [[ -f "${flac_files[0]}" ]] ; then
+		total_files+=( "${flac_files[@]}" )
+	else
+		flac_files=()
+	fi
+
+	if [[ -f "${ape_files[0]}" ]] ; then
+		total_files+=( "${ape_files[@]}" )
+	else
+		ape_files=()
+	fi
+}
+
+# Obtain all the directories housing the music images to process
+__obtain_directories () {
+	for i in "${total_files[@]}" ; do
+		if [[ "${processed_directory}" != "${i%/*}" ]] ; then
+			total_directories+=( "${i%/*}" )
+		fi
+		processed_directory="${i%/*}"
+	done
+}
+
+# Determine operation(s) to run
+__determine_operation () {
+	# Run through the total directories, determining which operation should be
+	# performed based on the files found in each directory
+	for dir in "${total_directories[@]}" ; do
+		# Obtain total files to process in the current directory: ${dir}
+		__total_files_directory
+
+		# Check the number of CUE file and music image files in the current
+		# directory, running a certain operation depending on the number(s)
+		# found in the current directory
+		#
+		# If the number of music image files is GREATER than one
+		if [[ ${#tmp_total_files[@]} -gt 1 ]] ; then
+
+			#------------------------------------------------------------------
+			# .: MULTIPLE FILES -- MULTIPLE CUES :.
+			#------------------------------------------------------------------
+			# If the number of CUE files is GREATER than one
+			if [[ ${#cue_files[@]} -gt 1 ]] ; then
+
+				# Obtain all the CUE files in the current directory
+				cue_files=( "${dir}"/*.[Cc][Uu][Ee] )
+
+				for cue in "${cue_files[@]}" ; do
+					# Load and store CUE into array
+					__cue_array
+
+					# Load and store CUE filenames
+					__cue_filename
+
+					# Check for missing files that are in ${file_array[@]}
+					__check_missing_files
+				done
+
+				# Initialize ${c} to zero
+				c=0
+
+				for cue in "${cue_files[@]}" ; do
+					# Load and store CUE into array
+					__cue_array
+
+					# Grab the CUE header to allow each separate CUE to have the
+					# requisite information
+					__cue_header
+
+					# Split CUE file in array into separate CUE files to be used to split each
+					# file listed in the separate CUE files
+					__cue_split
+
+					# If there are more than one CUE files (that were split),
+					# determine the starting number split files start at from
+					# the '-c' argument to 'shnsplit'
+					if (( ${#multi_cue[@]} > 1 )) ; then
+						# Initialize ${d} to zero
+						d=0
+
+						# For each CUE that were split and stored as separate
+						# indices, determine the operation to run
+						for cue in "${multi_cue[@]}" ; do
+							# Load the split CUE into a temporary array
+							mapfile -n0 -t tmp_cue <<< "${cue}"
+
+							# Run through the CUE array and grab only the TRACK
+							# lines, storing into ${track_array}
+							for i in "${tmp_cue[@]}" ; do
+								if [[ "${i}" == '  TRACK'* ]] ; then
+									track_array+=( "${i}" )
+								fi
+							done
+
+							# The split CUE is stored as a single index in an
+							# array
+							cue=( "$(printf "%s\n" "${cue}")" )
+
+							# Add the operation to run to the array.  '-c' is
+							# ${d} + 1
+							operations+=( "$(( ${d} + 1 )) ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
+
+							# Add the number of TRACKs found in the CUE array
+							# to ${d}
+							d=$(( ${d} + ${#track_array[@]} ))
+
+							# Clear ${track_array} to not pollute next loop (if
+							# applicable)
+							track_array=()
+						done
+					else
+						# Load the split CUE into a temporary array
+						mapfile -n0 -t tmp_cue < "${cue}"
+
+						# Run through the CUE array and grab only the TRACK
+						# lines, storing into ${track_array}
+						for i in "${tmp_cue[@]}" ; do
+							if [[ "${i}" == '  TRACK'* ]] ; then
+								track_array+=( "${i}" )
+							fi
+						done
+
+						# The split CUE is stored as a single index in an
+						# array
+						cue=( "$(printf "%s\n" "${multi_cue[@]}")" )
+
+						# Add the operation to run to the array.  '-c' is
+						# ${c} + 1
+						operations+=( "$(( ${c} + 1 )) ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
+
+						# Add the number of TRACKs found in the CUE array
+						# to ${c}
+						c=$(( ${c} + ${#track_array[@]} ))
+
+						# Clear the total number of TRACKs found from the split CUE array in
+						# order to not pollute the next loop (if applicable)
+						track_array=()
+					fi
+
+					# Clear the multiple CUE array in the event that multiple
+					# directories have multiple files in a CUE
+					multi_cue=()
+				done
+			#== .: END MULTIPLE FILES -- MULTIPLE CUES :. =====================
+
+			#------------------------------------------------------------------
+			# .: MULTIPLE FILES -- SINGLE CUE :.
+			#------------------------------------------------------------------
+			else
+				# Grab the path to the only CUE file and store it a variable
+				cue=( "${dir}"/*.[Cc][Uu][Ee] )
+
+				# Load and store CUE into array
+				__cue_array
+
+				# Load and store CUE filenames
+				__cue_filename
+
+				# Grab the CUE header to allow each separate CUE to have the
+				# requisite information
+				__cue_header
+
+				# Check for missing files that are in ${file_array[@]}
+				__check_missing_files
+
+				# Split CUE file in array into separate CUE files to be used to split each
+				# file listed in the separate CUE files
+				__cue_split
+
+				# Initialize ${c} to zero
+				c=0
+
+				# If there are more than one CUE files (that were split),
+				# determine the starting number split files start at from
+				# the '-c' argument to 'shnsplit'
+				if (( ${#multi_cue[@]} > 1 )) ; then
+					# For each CUE that were split and stored as separate
+					# indices, determine the operation to run
+					for cue in "${multi_cue[@]}" ; do
+						# Load the split CUE into a temporary array
+						mapfile -n0 -t tmp_cue <<< "${cue}"
+
+						# Run through the CUE array and grab only the TRACK
+						# lines, storing into ${track_array}
+						for i in "${tmp_cue[@]}" ; do
+							if [[ "${i}" == '  TRACK'* ]] ; then
+								track_array+=( "${i}" )
+							fi
+						done
+
+						# The split CUE is stored as a single index in an
+						# array
+						cue=( "$(printf "%s\n" "${cue}")" )
+
+						# Add the operation to run to the array.  '-c' is
+						# ${c} + 1
+						operations+=( "$(( ${c} + 1 )) ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
+
+						# Add the number of TRACKs found in the CUE array
+						# to ${c}
+						c=$(( ${c} + ${#track_array[@]} ))
+
+						# Clear ${track_array} to not pollute next loop (if
+						# applicable)
+						track_array=()
+					done
+				else
+					# Load the split CUE into a temporary array
+					mapfile -n0 -t tmp_cue < "${cue}"
+
+					# Run through the CUE array and grab only the TRACK
+					# lines, storing into ${track_array}
+					for i in "${tmp_cue[@]}" ; do
+						if [[ "${i}" == '  TRACK'* ]] ; then
+							track_array+=( "${i}" )
+						fi
+					done
+
+					# The split CUE is stored as a single index in an
+					# array
+					cue=( "$(printf "%s\n" "${multi_cue[@]}")" )
+
+					# Add the operation to run to the array.  '-c' is
+					# ${c} + 1
+					operations+=( "$(( ${c} + 1 )) ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
+
+					# Add the number of TRACKs found in the CUE array
+					# to ${c}
+					c=$(( ${c} + ${#track_array[@]} ))
+
+					# Clear the total number of TRACKs found from the split CUE array in
+					# order to not pollute the next loop (if applicable)
+					track_array=()
+				fi
+			fi
+			#== .: END MULTIPLE FILES -- SINGLE CUE :. ========================
+
+		#----------------------------------------------------------------------
+		# .: SINGLE FILE -- SINGLE/MULTIPLE CUE :.
+		#----------------------------------------------------------------------
+		# There is only one music image file in the current directory.  The number
+		# of CUE files does not matter since one or more is handled the same way
+		else
+
+			# Grab the path to only one CUE file and store it a variable
+			cue=( "${dir}"/*.[Cc][Uu][Ee] )
+			cue="${cue[0]}"
+
+			# Load and store CUE into array
+			__cue_array
+
+			# Load and store CUE filenames
+			__cue_filename
+
+			# Check for missing files that are in ${file_array[@]}
+			__check_missing_files
+
+			# The CUE is stored as a single index in an array
+			cue=( "$(printf "%s\n" "${cue_array[@]}")" )
+
+			# Add the operation to run to the array.  '-c' is 1
+			operations+=( "1 ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
+
+			# Clear arrays below in the event other files may be found.  This
+			# is explicitly called on this operation because the multiple files
+			# operations already clear the arrays when calling '__cue_split'
+			cue=()
+			cue_array=()
+			file_array=()
+		fi
+
+		#== .: END SINGLE FILE -- SINGLE/MULTIPLE CUE :. ======================
+
+		# Clear the total files found for this directory so it doesn't
+		# pollute the next loop
+		tmp_total_files=()
+
+		# Clear the multiple CUE array in the event that multiple
+		# directories have multiple files in a CUE
+		multi_cue=()
+	done
+}
+
+#== .: END PRELIMINARY OPERATIONS :. ==========================================
+
+
+#------------------------------------------------------------------------------
+# .: SUB OPERATIONS :.
+#------------------------------------------------------------------------------
+# Create split files directory using tags obtained from the CUE file
+__create_split_dir () {
+	# If the tags to use for directory names are NULL, set placeholder values
+	#
+	# We set a temporary tag to use to make the directory heirarchy in order to
+	# not pollute testing against NULL tag values when setting the tags for the
+	# split FLAC files
+
+	if [[ -z "${ARTIST}" ]] ; then
+		dir_artist="[Unknown Artist]"
+	else
+		dir_artist="${ARTIST}"
+	fi
+
+	# Both DATE and ALBUM are NULL
+	if [[ -z "${DATE}" && -z "${ALBUM}" ]] ; then
+		dir_date="[0000] - "
+		dir_album="[Unknown Album]"
+
+	# Only DATE is NULL.  Don't display DATE
+	elif [[ -z "${DATE}" && -n "${ALBUM}" ]] ; then
+		dir_date=""
+		dir_album="${ALBUM}"
+
+	# Only ALBUM is NULL
+	elif [[ -z "${ALBUM}" && -n "${DATE}" ]] ; then
+		dir_date="[${DATE}] - "
+		dir_album="[Unknown Album]"
+
+	# Both DATE and ALBUM are NOT NULL
+	else
+		dir_date="[${DATE}] - "
+		dir_album="${ALBUM}"
+	fi
+
+	# This variable is used for splitting and tagging files as well
+	full_split_dir="${split_dir}/${dir_artist}/${dir_date}${dir_album}"
+
+	# Create the directories
+	mkdir -p "${full_split_dir}"
 }
 
 # Split image file with 'shnsplit'
@@ -1501,53 +1475,155 @@ __tag_files () {
 	metaflac_tags=()
 }
 
-# Find all the various audio files to process, storing the found files in one
-# centralized array
-__obtain_audio_files () {
-	wav_files=( "${image_dir}"/**/*.[Ww][Aa][Vv] )
-	wv_files=( "${image_dir}"/**/*.[Ww][Vv] )
-	flac_files=( "${image_dir}"/**/*.[Ff][Ll][Aa][Cc] )
-	ape_files=( "${image_dir}"/**/*.[Aa][Pp][Ee] )
+#== .: END SUB OPERATIONS :. ==================================================
 
-	# Test if there were any of the above file formats found, and if so add them
-	# to the ${total_files[@]} array
-	if [[ -f "${wav_files[0]}" ]] ; then
-		total_files+=( "${wav_files[@]}" )
-	else
-		wav_files=()
-	fi
-
-	if [[ -f "${wv_files[0]}" ]] ; then
-		total_files+=( "${wv_files[@]}" )
-	else
-		wv_files=()
-	fi
-
-	if [[ -f "${flac_files[0]}" ]] ; then
-		total_files+=( "${flac_files[@]}" )
-	else
-		flac_files=()
-	fi
-
-	if [[ -f "${ape_files[0]}" ]] ; then
-		total_files+=( "${ape_files[@]}" )
-	else
-		ape_files=()
-	fi
-}
-
-# Obtain all the directories housing the music images to process
-__obtain_directories () {
-	for i in "${total_files[@]}" ; do
-		if [[ "${processed_directory}" != "${i%/*}" ]] ; then
-			total_directories+=( "${i%/*}" )
-		fi
-		processed_directory="${i%/*}"
-	done
-}
 
 #------------------------------------------------------------------------------
-# :: BEGIN SCRIPT ::
+# .: SPLITTING OPERATIONS :.
+#------------------------------------------------------------------------------
+# Operation to split files in parallel, obtaining the information from $@
+__operation_split () {
+	# Let's make sure to kill running children if this function was aborted via
+	# SIGINT.  This function will receive SIGTERM from the kill in the previous
+	# trap
+	trap __kill_jobs EXIT
+
+	# Determine the count for 'shnsplit' used for the '-c' argument from the
+	# positional parameters ($@)
+	shnsplit_count="${@%% ::::@@si@@:::*}"
+
+	# Remove the first parameter '-c' (used for finding ${dir} and the CUE array
+	tmp_parameter="${@#*::::@@si@@:::: }"
+
+	# Set up current directory from ${tmp_parameter}
+	dir="${tmp_parameter% ::::@@si@@::::*}"
+
+	# Set the CUE information from ${tmp_parameter} into the CUE array
+	mapfile -n0 -t cue_array <<< "${tmp_parameter#*::::@@si@@:::: }"
+
+	# Check if CUE is neither ASCII or UTF8.  If not, then try to encode to
+	# UTF8, to help process files.  Normally, if not ASCII or UTF8, the encoding
+	# is CP1251 (Russian/Cyrillic), so we'll use CP1251 as the encoding from
+	# parameter to 'iconv'
+	__cue_encoding
+
+	# Run through CUE array and replace certain characters
+	# Characters replaced:
+	#   ` -> '
+	__cue_replace_characters
+
+	# Run through CUE array and add an extra period to the end of each track
+	# TITLE if that TITLE ends with a period (to prevent 'shnsplit' from NOT
+	# adding a period).  This is done LAST before obtaining tags and splitting
+	# in order to make sure ${old_array} is equal to ${cue_array} (ie, no
+	# more processing being done on ${cue_array} after creating a copy as
+	# ${old_array}
+	__cue_title_period
+
+	# Run through CUE array and obtain album tags and the current file to
+	# process
+	for line in "${cue_array[@]}" ; do
+		# Obtain filename
+		__cue_current_filename
+
+		# Obtain ARTIST
+		__cue_artist
+
+		# Obtain ALBUM
+		__cue_album
+
+		# Obtain DATE
+		__cue_date
+
+		# Obtain GENRE
+		__cue_genre
+	done
+
+	# Set ${i} from the file found from __cue_current_filename
+	i="${file}"
+
+	# Check if file has a higher resolution than a CD (eg. greater than
+	# 16bit/44.1kHz) and if so, convert the CUE sheet array from frames
+	# per second to milliseconds to allow shnsplit to work correctly
+	__cue_resolution
+
+	# Display current file being split
+	__print_splitting_file
+
+	# Create split files directory using tags obtained from the CUE array
+	__create_split_dir
+
+	# Split image file with 'shnsplit' and send to background to allow killing
+	# on SIGTERM
+	__split_file &
+
+	# Wait on background process and return exit code of said process
+	wait "${!}"
+
+	# Exit code 130 is SIGINT so only check for exit code '1'
+	if [[ "${?}" -eq 1 ]] ; then
+		__warn "Failed to split ${i#**/}." ; __newline
+		__warn "${i#**/} may be corrupt." ; __newline
+	fi
+
+	# Tag the split music files
+	__tag_files
+
+	# Print newline into file descriptor after completion
+	__newline >&3
+}
+
+#== .: END SPLITTING OPERATIONS :. ============================================
+
+
+#------------------------------------------------------------------------------
+# .: PRE-SCRIPT CHECKS :.
+#------------------------------------------------------------------------------
+# Enable BASH globstar
+shopt -s globstar
+
+# Store current stty settings
+old_stty="$(stty -g)"
+
+# Prevent Control-C from displaying '^C'.  May already be set
+stty -ctlecho 2>/dev/null
+
+# Hide the cursor
+printf "\033[?25l"
+
+# Current program version
+version="0.2"
+
+# Colors
+blue="\033[34m"
+green="\033[32m"
+red="\033[31m"
+cyan="\033[36m"
+magenta="\033[35m"
+yellow="\033[33m"
+normal="\033[0m"
+
+# Temporary FIFO location
+tmp_fifo="/tmp/split_images_fifo_$$"
+
+# Directory housing music image files
+image_dir="${1%/}"
+
+# Directory where split music file end up
+split_dir="/media/Music_Library/Music/Split Music Files"
+
+# Shnsplit flac encoder to use:
+#  No SEEKTABLE block created
+#  Fastest/Lowest compression: 1
+#  Verify FLAC output (tests integrity)
+#  Output to shnsplit as '%f' which is sent as STDOUT to shnsplit as STDIN
+shn_flac_enc="flac flac --no-seektable -1 -V -o %f -"
+
+#== .: END PRE-SCRIPT CHECKS :. ===============================================
+
+
+#------------------------------------------------------------------------------
+# .: BEGIN SCRIPT :.
 #------------------------------------------------------------------------------
 # If ${jobs} wasn't set upon invocation, check in /proc
 # to see how many jobs should be run
@@ -1596,10 +1672,10 @@ else
 
 	if [[ "${last_operation}" == "true" ]] ; then
 		# Music image split successfully, printing only if it's the last file
-		__print_ok ; __newline
+		__print_splitting_ok ; __newline
 	fi
 fi
 
 __operation_summary
 
-#== :: END SCRIPT :: ==========================================================
+#== .: END SCRIPT :. ==========================================================
