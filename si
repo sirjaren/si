@@ -138,6 +138,14 @@ __operation_summary () {
 	#--------------------------------------------------------------------------
 	# .: CLEANUP SECTION :.
 	#--------------------------------------------------------------------------
+	# Kill spinner process
+	#
+	# Obtain process PID of spinner
+	mapfile -n1 -t -u4 spinner_pid
+
+	# Kill spinner PID
+	kill "${spinner_pid[0]}"
+
 	# Restore old stty settings, make stty happy by redirecting /dev/stderr
 	stty ${old_stty} < /dev/stderr
 
@@ -153,6 +161,23 @@ __operation_summary () {
 #------------------------------------------------------------------------------
 # .: PROCESSED FILE MESSAGES :.
 #------------------------------------------------------------------------------
+# Print out spinner
+__spinner () {
+	# Array houses various spinner incarnations
+	spinner=( '|' '/' '-' '\' )
+
+	# Run indefinitely
+	while true; do
+		# Print each index of the spinner array
+		for i in "${spinner[@]}" ; do
+			printf "\r ${cyan}%s${normal} " "${i}"
+
+			# Sleep so the spinner isn't exceptionally fast
+			sleep .1
+		done
+	done
+}
+
 # Print out current file that is being split
 __print_splitting_file () {
 	# This is the maximum length of a string to be displayed based on column width,
@@ -254,6 +279,14 @@ __operation_abort () {
 
 	# Kill running children
 	__kill_jobs
+
+	# Kill spinner process
+	#
+	# Obtain process PID of spinner
+	mapfile -n1 -t -u4 spinner_pid
+
+	# Kill spinner PID
+	kill "${spinner_pid[0]}"
 
 	# Remove any temporary WAV files (if any)
 	rm -f "${image_dir}"/**/\[[0-9]*\]_tmp_si_[0-9]*.wav
@@ -380,6 +413,19 @@ __clear_tmp_fd () {
 	# Remove temporary FIFO and leave just the file
 	# descriptor available
 	rm -f "${tmp_fifo}"
+}
+
+# Create spinner file descriptor (4) and create a new FIFO that's tied to file
+# descriptor 4, removing the FIFO upon completion
+__create_spinner_fd () {
+	# Create temporary FIFO
+	mkfifo "${spinner_fifo}"
+
+	# Open FIFO for reading and writing on file descriptor '4'
+	exec 4<>"${spinner_fifo}"
+
+	# Remove temporary FIFO and leave just the file descriptor available
+	rm -f "${spinner_fifo}"
 }
 
 #== .: END VARIOUS COMMANDS :. ================================================
@@ -1547,6 +1593,15 @@ __operation_split () {
 	# per second to milliseconds to allow shnsplit to work correctly
 	__cue_resolution
 
+	# Display spinner only once as it will always be running
+	if (( count == 1 )) ; then
+		# Display spinner as a separate process (forked to background)
+		__spinner &
+
+		# Store spinner PID into fd '4'
+		printf "%s\n" "${!}" >&4
+	fi
+
 	# Display current file being split
 	__print_splitting_file
 
@@ -1604,7 +1659,10 @@ yellow="\033[33m"
 normal="\033[0m"
 
 # Temporary FIFO location
-tmp_fifo="/tmp/split_images_fifo_$$"
+tmp_fifo="/tmp/si_tmp_fifo_$$"
+
+# Temporary spinner FIFO
+spinner_fifo="/tmp/si_spinner_fifo_$$"
 
 # Directory housing music image files
 image_dir="${1%/}"
@@ -1625,6 +1683,9 @@ shn_flac_enc="flac flac --no-seektable -1 -V -o %f -"
 #------------------------------------------------------------------------------
 # .: BEGIN SCRIPT :.
 #------------------------------------------------------------------------------
+# Open up file descriptor '4' for reading and writing for use with the spinner
+__create_spinner_fd
+
 # If ${jobs} wasn't set upon invocation, check in /proc
 # to see how many jobs should be run
 if [[ -z "${jobs}" ]] ; then
