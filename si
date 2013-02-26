@@ -28,6 +28,7 @@
 #    1: STDOUT
 #    2: STDERR
 #    3: FIFO process manager
+#    4: Spinner PID
 #-------------------------------------------------------------------------------
 # .: SCRIPT MESSAGES :.
 #-------------------------------------------------------------------------------
@@ -47,6 +48,13 @@ __warn () {
 __info () {
 	printf "${normal}%s${green}%s${normal}%s" \
 	" " "*" " ${@}"
+}
+
+# Display (in bold red) message that system is missing vital programs
+__display_missing_commands_header () {
+	{ __error "You seem to be missing one or more necessary programs" ; __newline ;} >&2
+	{ __error "to run this script reliably.  Below shows the program(s)" ; __newline ;} >&2
+	{ __error "missing, as well as where you can install them from:" ; __newline 2 ;} >&2
 }
 
 # Display a lot of help
@@ -721,6 +729,94 @@ __process_positional_parameters () {
 }
 
 #== .: END POSITIONAL PARAMETERS :. ============================================
+
+
+#-------------------------------------------------------------------------------
+# .: MISSING PROGRAMS :.
+#-------------------------------------------------------------------------------
+# Check for missing programs vital to this script
+__check_missing_programs () {
+	# Check if each command can be found in $PATH
+	rm_exists="$(type -P rm)"
+	sleep_exists="$(type -P sleep)"
+	stty_exists="$(type -P stty)"
+	mkfifo_exists="$(type -P mkfifo)"
+	wc_exists="$(type -P wc)"
+	ffprobe_exists="$(type -P ffprobe)"
+	metaflac_exists="$(type -P metaflac)"
+	flac_exists="$(type -P flac)"
+	mac_exists="$(type -P mac)"
+	wvunpack_exists="$(type -P wvunpack)"
+	iconv_exists="$(type -P iconv)"
+	shnsplit_exists="$(type -P shnsplit)"
+
+	# Go through and test if each command was found (by displaying its $PATH).
+	# If it's empty, add where you can find the package to an array to be
+	# displayed.
+	if [[ -z "${rm_exists}" ]] ; then
+		command_exists_array+=( "You can generally install \"rm\" with the \"coreutils\" package." )
+	fi
+
+	if [[ -z "${sleep_exists}" ]] ; then
+		command_exists_array+=( "You can generally install \"sleep\" with the \"coreutils\" package." )
+	fi
+
+	if [[ -z "${stty_exists}" ]] ; then
+		command_exists_array+=( "You can generally install \"stty\" with the \"coreutils\" package." )
+	fi
+
+	if [[ -z "${mkfifo_exists}" ]] ; then
+		command_exists_array+=( "You can generally install \"mkfifo\" with the \"coreutils\" package." )
+	fi
+
+	if [[ -z "${wc_exists}" ]] ; then
+		command_exists_array+=( "You can generally install \"wc\" with the \"coreutils\" package." )
+	fi
+
+	if [[ -z "${ffprobe_exists}" ]] ; then
+		command_exists_array+=( "You can generally install \"ffprobe\" with the \"ffmpeg\" package." )
+	fi
+
+	if [[ -z "${metaflac_exists}" ]] ; then
+		command_exists_array+=( "You can generally install \"metaflac\" with the \"flac\" package." )
+	fi
+
+	if [[ -z "${flac_exists}" ]] ; then
+		command_exists_array+=( "You can generally install \"flac\" with the \"flac\" package." )
+	fi
+
+	if [[ -z "${mac_exists}" ]] ; then
+		command_exists_array+=( "You can generally install \"mac\" with the \"mac\" package." )
+	fi
+
+	if [[ -z "${wvunpack_exists}" ]] ; then
+		command_exists_array+=( "You can generally install \"wvunpack\" with the \"wavpack\" package." )
+	fi
+
+	if [[ -z "${iconv_exists}" ]] ; then
+		command_exists_array+=( "You can generally install \"iconv\" with the \"glibc\" package." )
+	fi
+
+	if [[ -z "${shnsplit_exists}" ]] ; then
+		command_exists_array+=( "You can generally install \"shnsplit\" with the \"shntool\" package." )
+	fi
+
+	# If all the programs above were found, continue with script.  Else
+	# display warning and exit script, printing out which package has
+	# the missing programs
+	if [[ -n "${command_exists_array[@]}" ]] ; then
+		__display_missing_commands_header
+
+		# Iterate through array and print each value
+		for i in "${command_exists_array[@]}" ; do
+			{ __warn "${i}" ; __newline ;} >&2
+		done
+
+		exit 1
+	fi
+}
+
+#== .: END MISSING PROGRAMS :. =================================================
 
 
 #-------------------------------------------------------------------------------
@@ -1966,6 +2062,10 @@ if (( bash_version_check < 4 )) ; then
     { __error "this program!" ; __newline ;} >&2
     exit 1
 fi
+
+# Check for any missing programs vital for this script to operate correctly, and
+# exit if any programs are found to be missing
+__check_missing_programs
 
 # Check whether directories exists
 if (( ${#} >= 2 )) ; then
