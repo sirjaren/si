@@ -28,9 +28,9 @@
 #    1: STDOUT
 #    2: STDERR
 #    3: FIFO process manager
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # .: SCRIPT MESSAGES :.
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Red message
 __error () {
 	printf "${normal}%s${red}%s${normal}%s" \
@@ -49,12 +49,84 @@ __info () {
 	" " "*" " ${@}"
 }
 
-#== .: END MESSAGES :. ========================================================
+# Display a lot of help
+__long_help () {
+	long_help=".TH \"SI\" 1
+.SH NAME
+si \\- Parallel BASH commandline music image splitter to separate FLAC files
+.SH SYNOPSIS
+.B si
+.RI [options]
+.RI [directory]
+.RI [target_directory]
+.RI ...
+.SH DESCRIPTION
+si is a BASH commandline program to split a variety of music image files
+(currently FLAC, WV, APE, and WAV) into separate FLAC files using the original
+music image's CUE file.  One of the key features of si is it's ability to
+process a great number of music images in parallel, using as many jobs to
+complete an operation as possible, very similar to 'GNU make'.
+.SH USAGE
+Running si is pretty straightforward, with the user specifying the directory
+where music image files are located and then the user specifying the directory
+where the split FLAC files will reside.  Example:
+
+        \`si -j4 music_images_dir split_files_dir'
+.SH OPTIONS
+.TP
+.BI -j[N], --jobs[=N]
+Set the number of parallel jobs to run on script invocation.  If this is not
+set, this script will attempt to find the number of CPU cores available, using
+the number found as the number of parallel jobs to run.
+
+If the script is unable to find the number of CPU cores available, the number of
+jobs will be set to two (2) by default.
+.TP
+.BI -n, --no-color
+Turn off color output.
+.TP
+.BI -v, --version
+Display script version and exit.
+.TP
+.BI -h, --help
+Shows this help message.
+.SH BUGS
+If you find a bug, please report it at:
+<\\fBhttps://github.com/sirjaren/si/issues/new\\fP>
+.SH AUTHOR
+Jaren Stangret <sirjaren@gmail.com>
+.SH THANKS
+Thanks to all the people that provided feedback and support
+.br
+.SH REVISION
+[ 1 ]"
+
+	# Print out help to temporary file which will read by 'man'
+	printf "%s\n" "${long_help}" > "${tmp_man_page}"
+}
+
+# Display short help
+__short_help () {
+	printf "%s\n" " Usage: si [options] [directory] [target_directory] ..."
+	printf "%s\n" " Options:"
+	printf "%s\n" "   -j[N], --jobs[=N]"
+	printf "%s\n" "   -n, --no-color"
+	printf "%s\n" "   -v, --version"
+	printf "%s\n" "   -h, --help"
+	printf "%s\n" " This is the short help; for details use 'si --help' or 'si -h'"
+}
+
+# Display usage
+__usage () {
+	printf "%s\n" " Usage: si [options] [directory] [target_directory] ..."
+}
+
+#== .: END MESSAGES :. =========================================================
 
 
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # .: BANNERS :.
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Top banner displaying invocation settings
 __top_banner () {
 	# If Redo Tags is called, create the necessary spacing
@@ -135,9 +207,9 @@ __operation_summary () {
 	printf "${normal}%s${blue}%s${normal}\n" \
 	" " "-------------------------+-------------------------"
 
-	#--------------------------------------------------------------------------
+	#---------------------------------------------------------------------------
 	# .: CLEANUP SECTION :.
-	#--------------------------------------------------------------------------
+	#---------------------------------------------------------------------------
 	# Kill spinner process
 	#
 	# Obtain process PID of spinner
@@ -152,15 +224,15 @@ __operation_summary () {
 	# Restore the cursor
 	printf "\033[?25h"
 
-	#== .: END CLEANUP SECTION :. =============================================
+	#== .: END CLEANUP SECTION :. ==============================================
 }
 
-#== .: END BANNERS :. =========================================================
+#== .: END BANNERS :. ==========================================================
 
 
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # .: PROCESSED FILE MESSAGES :.
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Print out spinner
 __spinner () {
 	# Array houses various spinner incarnations
@@ -249,12 +321,17 @@ __processed_files_ok () {
 	"" "[" " " "ok" " " "]"
 }
 
-#== .: END PROCESSED FILE MESSAGES :. =========================================
+#== .: END PROCESSED FILE MESSAGES :. ==========================================
 
 
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # .: VARIOUS COMMANDS :.
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
+# Display script version
+__print_version () {
+	printf "%s\n" "Version ${version}"
+}
+
 # Prints the number of newlines specified
 # by ${1}
 __newline () {
@@ -428,12 +505,227 @@ __create_spinner_fd () {
 	rm -f "${spinner_fifo}"
 }
 
-#== .: END VARIOUS COMMANDS :. ================================================
+#== .: END VARIOUS COMMANDS :. =================================================
 
 
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
+# .: POSITIONAL PARAMETERS :.
+#-------------------------------------------------------------------------------
+# Obtain and process the positional parameters invoked with the script
+__process_positional_parameters () {
+	# If no arguments are made to the script show usage & short help
+	if [[ "${#}" -eq 0 ]] ; then
+		__short_help
+		exit 1
+	fi
+
+	# Add case where only one argument is specified
+	if [[ "${#}" -eq 1 ]] ; then
+		case "${1}" in
+			--version|-v)
+				__print_version
+				exit 0
+			;;
+			--help|-h)
+				# Create the temporary file in which a man page will be
+				# generated
+				tmp_man_page="/tmp/si_man_$$.1"
+
+				# Generate the man page to the above temporary location
+				__long_help
+
+				# Read the man page with 'man'
+				man "${tmp_man_page}"
+
+				# After reading, remove temporary file and exit
+				rm -f "${tmp_man_page}"
+
+				exit 0
+			;;
+		esac
+	fi
+
+	# Add case where two or more arguments are specified and the arguments
+	# called are not to have anything after them
+	if (( ${#} > 1 )) ; then
+		case "${1}" in
+			--version|-v)
+				__usage >&2
+				exit 1
+			;;
+			--help|-h)
+				__usage >&2
+				exit 1
+			;;
+		esac
+	fi
+
+	# Separate the long and short style arguments into their
+	# own arrays as well as capture the last non-arguements, to
+	# prevent multiple directories being called
+	for i in "${@}" ; do
+		if [[ "${i}" == --* ]] ; then
+			long_style_arguments_array+=( "${i}" )
+		elif [[ "${i}" == -* ]] ; then
+			short_style_arguments_array+=( "${i}" )
+		else
+			non_arguments_array+=( "${i}" )
+		fi
+	done
+
+	# If there are more than two (2) directories, exit script
+	if (( ${#non_arguments_array[@]} > 2 )) ; then
+		__usage >&2
+		exit 1
+	fi
+
+	# If there were any long style arguments called, convert them to short
+	# style in order for getopts to be able to process them correctly (ignoring
+	# '--help', '--version', since this is taken this is taken care of above).
+	# Add invalid arguments to it's own array
+	if [[ -n "${long_style_arguments_array[@]}" ]] ; then
+		for i in "${long_style_arguments_array[@]}" ; do
+			case "${i}" in
+				--no-color)
+					converted_arguments_array+=( -n )
+				;;
+				--jobs=[0-9]*)
+					# Set number of jobs to run via the required
+					# integer argument after '-j'
+					jobs="${i##*=}"
+				;;
+				--version)
+					__usage >&2
+					exit 1
+				;;
+				--help)
+					__usage >&2
+					exit 1
+				;;
+				*)
+					# Set invalid argument into array
+					invalid_arguments_array+=( "${i}" )
+				;;
+			esac
+		done
+	fi
+
+	# If there were any short style arguments called, go through
+	# them, adding the valid arguments to the "converted_arguments"
+	# array and adding invalid arguments to it's own array
+	if [[ -n "${short_style_arguments_array[@]}" ]] ; then
+		while getopts ":nj:hvo" arguments "${short_style_arguments_array[@]}" ; do
+			case "${arguments}" in
+				n)
+					converted_arguments_array+=( -n )
+				;;
+				j)
+					# Set number of jobs to run via the required
+					# integer argument after '-j'
+					jobs="${OPTARG}"
+					converted_arguments_array+=( -j )
+				;;
+				h)
+					converted_arguments_array+=( -h )
+				;;
+				v)
+					converted_arguments_array+=( -v )
+				;;
+				:)
+					# Currently, this is just for '-j' so we can explicity specify it
+					parameter_errors_array+=( "-${OPTARG} requires an integer after it (eg. -${OPTARG}11)." )
+				;;
+				?)
+					# Set invalid argument from getopts into
+					# array using ${OPTARG}
+					invalid_arguments_array+=( "-${OPTARG}" )
+				;;
+			esac
+		done
+	fi
+
+	# If there were invalid arguments called, display them and exit script
+	if [[ -n "${invalid_arguments_array[@]}" || -n "${parameter_errors_array[@]}" ]] ; then
+		__usage >&2
+
+		if [[ -n "${invalid_arguments_array[@]}" ]] ; then
+			__newline >&2
+			__error "Invalid options:" >&2
+
+			for i in "${invalid_arguments_array[@]}" ; do
+				printf "%s" " ${i}" >&2
+			done
+
+			__newline >&2
+		fi
+
+		if [[ -n "${parameter_errors_array[@]}" ]] ; then
+			__newline >&2
+
+			for i in "${parameter_errors_array[@]}" ; do
+				{ __error "${i}" ; __newline ;} >&2
+			done
+		fi
+
+		exit 1
+	fi
+
+	# Run through all the converted arguments and set up the correct
+	# values based on what the user called, thereby allowing the
+	# script to process said values and execute the corresponding
+	# functions
+	for i in "${converted_arguments_array[@]}" ; do
+		case "${i}" in
+			-n)
+				no_color="true"
+			;;
+			-j)
+				# Do nothing, ${jobs} has already been stored
+				# in previous getopts loop
+				:
+			;;
+			-v)
+				__usage >&2
+				exit 1
+			;;
+			-h)
+				__usage >&2
+				exit 1
+			;;
+			*)
+				# Should not ever happen!
+				{ __error "This is a BUG! Please report to:" ; __newline ;} >&2
+				{ printf "%s\n" "   https://github.com/sirjaren/redoflacs/issues/new" ;} >&2
+
+				exit 1
+			;;
+		esac
+	done
+
+	# Put all the called arguments into an array
+	called_arguments_array=( "${@}" )
+
+	# Set the last two arguments as the two directories specified and remove the
+	# ending slash (if any) to prevent double slashes from appearing because of
+	# BASH's globstar.
+	#
+	# This only appears if the directories specified are the direct parent
+	# directories to the music image files to be processed.
+	#
+	# BASH 4.2 allows negative indices (ie):
+	#
+	# split_dir="${called_arguments_array[-1]%/}"
+	# image_dir="${called_arguments_array[-2]%/}"
+	split_dir="${called_arguments_array[$(( ${#called_arguments_array[@]} - 1 ))]%/}"
+	image_dir="${called_arguments_array[$(( ${#called_arguments_array[@]} - 2 ))]%/}"
+}
+
+#== .: END POSITIONAL PARAMETERS :. ============================================
+
+
+#-------------------------------------------------------------------------------
 # .: PARALLEL FUNCTION :.
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Function to run operations in parallel
 __run_parallel () {
 	# Forces count to start at 0, in the event that
@@ -495,12 +787,12 @@ __run_parallel () {
 	wait
 }
 
-#== .: END PARALLEL FUNCTION :. ===============================================
+#== .: END PARALLEL FUNCTION :. ================================================
 
 
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # .: ERROR FUNCTIONS :.
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Check for missing files that are in ${file_array[@]}
 __check_missing_files () {
 	# Check if all the files in the above array exist in the current
@@ -536,12 +828,12 @@ __check_missing_files () {
 	file_array=()
 }
 
-#== .: END ERROR FUNCTIONS :. =================================================
+#== .: END ERROR FUNCTIONS :. ==================================================
 
 
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # .: CUE FUNCTIONS :.
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Grab the CUE header to allow each separate CUE to have the requisite
 # information
 __cue_header () {
@@ -964,12 +1256,12 @@ __cue_resolution () {
 	fi
 }
 
-#== .: END CUE COMMANDS :. ====================================================
+#== .: END CUE COMMANDS :. =====================================================
 
 
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # .: PRELIMINARY OPERATIONS :.
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Obtain total files to process in the current directory
 __total_files_directory () {
 	# Obtain all the possible kinds of image files in the current directory
@@ -1074,9 +1366,9 @@ __determine_operation () {
 		# If the number of music image files is GREATER than one
 		if [[ ${#tmp_total_files[@]} -gt 1 ]] ; then
 
-			#------------------------------------------------------------------
+			#-------------------------------------------------------------------
 			# .: MULTIPLE FILES -- MULTIPLE CUES :.
-			#------------------------------------------------------------------
+			#-------------------------------------------------------------------
 			# If the number of CUE files is GREATER than one
 			if [[ ${#cue_files[@]} -gt 1 ]] ; then
 
@@ -1179,11 +1471,11 @@ __determine_operation () {
 					# directories have multiple files in a CUE
 					multi_cue=()
 				done
-			#== .: END MULTIPLE FILES -- MULTIPLE CUES :. =====================
+			#== .: END MULTIPLE FILES -- MULTIPLE CUES :. ======================
 
-			#------------------------------------------------------------------
+			#-------------------------------------------------------------------
 			# .: MULTIPLE FILES -- SINGLE CUE :.
-			#------------------------------------------------------------------
+			#-------------------------------------------------------------------
 			else
 				# Grab the path to the only CUE file and store it a variable
 				cue=( "${dir}"/*.[Cc][Uu][Ee] )
@@ -1271,11 +1563,11 @@ __determine_operation () {
 					track_array=()
 				fi
 			fi
-			#== .: END MULTIPLE FILES -- SINGLE CUE :. ========================
+			#== .: END MULTIPLE FILES -- SINGLE CUE :. =========================
 
-		#----------------------------------------------------------------------
+		#-----------------------------------------------------------------------
 		# .: SINGLE FILE -- SINGLE/MULTIPLE CUE :.
-		#----------------------------------------------------------------------
+		#-----------------------------------------------------------------------
 		# There is only one music image file in the current directory.  The number
 		# of CUE files does not matter since one or more is handled the same way
 		else
@@ -1307,7 +1599,7 @@ __determine_operation () {
 			file_array=()
 		fi
 
-		#== .: END SINGLE FILE -- SINGLE/MULTIPLE CUE :. ======================
+		#== .: END SINGLE FILE -- SINGLE/MULTIPLE CUE :. =======================
 
 		# Clear the total files found for this directory so it doesn't
 		# pollute the next loop
@@ -1319,12 +1611,12 @@ __determine_operation () {
 	done
 }
 
-#== .: END PRELIMINARY OPERATIONS :. ==========================================
+#== .: END PRELIMINARY OPERATIONS :. ===========================================
 
 
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # .: SUB OPERATIONS :.
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Create split files directory using tags obtained from the CUE file
 __create_split_dir () {
 	# If the tags to use for directory names are NULL, set placeholder values
@@ -1521,12 +1813,12 @@ __tag_files () {
 	metaflac_tags=()
 }
 
-#== .: END SUB OPERATIONS :. ==================================================
+#== .: END SUB OPERATIONS :. ===================================================
 
 
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # .: SPLITTING OPERATIONS :.
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Operation to split files in parallel, obtaining the information from $@
 __operation_split () {
 	# Let's make sure to kill running children if this function was aborted via
@@ -1628,23 +1920,14 @@ __operation_split () {
 	__newline >&3
 }
 
-#== .: END SPLITTING OPERATIONS :. ============================================
+#== .: END SPLITTING OPERATIONS :. =============================================
 
 
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # .: PRE-SCRIPT CHECKS :.
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Enable BASH globstar
 shopt -s globstar
-
-# Store current stty settings
-old_stty="$(stty -g)"
-
-# Prevent Control-C from displaying '^C'.  May already be set
-stty -ctlecho 2>/dev/null
-
-# Hide the cursor
-printf "\033[?25l"
 
 # Current program version
 version="0.2"
@@ -1658,33 +1941,52 @@ magenta="\033[35m"
 yellow="\033[33m"
 normal="\033[0m"
 
-# Temporary FIFO location
-tmp_fifo="/tmp/si_tmp_fifo_$$"
+# Process positional parameters, allowing script to see which operations to run.
+# Make sure we send all the positional parameters called to the function,
+# otherwise the function will think there aren't any positional parameters to
+# process as it handles it's own positional parameters
+__process_positional_parameters "${@}"
 
-# Temporary spinner FIFO
-spinner_fifo="/tmp/si_spinner_fifo_$$"
+# Check if user set '-n, --no-color'.  This must come before everything (and
+# after the positional parameters) to ensure color is set/unset
+if [[ "${no_color}" == "true" ]] ; then
+    blue=""
+    green=""
+    red=""
+    cyan=""
+    magenta=""
+    yellow=""
+    normal=""
+fi
 
-# Directory housing music image files
-image_dir="${1%/}"
+# Make sure we are running BASH 4 or greater
+bash_version_check="${BASH_VERSION%%.*}"
+if (( bash_version_check < 4 )) ; then
+    { __error "You must be running BASH version 4 or greater to use" ; __newline ;} >&2
+    { __error "this program!" ; __newline ;} >&2
+    exit 1
+fi
 
-# Directory where split music file end up
-split_dir="/media/Music_Library/Music/Split Music Files"
-
-# Shnsplit flac encoder to use:
-#  No SEEKTABLE block created
-#  Fastest/Lowest compression: 1
-#  Verify FLAC output (tests integrity)
-#  Output to shnsplit as '%f' which is sent as STDOUT to shnsplit as STDIN
-shn_flac_enc="flac flac --no-seektable -1 -V -o %f -"
-
-#== .: END PRE-SCRIPT CHECKS :. ===============================================
-
-
-#------------------------------------------------------------------------------
-# .: BEGIN SCRIPT :.
-#------------------------------------------------------------------------------
-# Open up file descriptor '4' for reading and writing for use with the spinner
-__create_spinner_fd
+# Check whether directories exists
+if (( ${#} >= 2 )) ; then
+	if [[ ! -d "${image_dir}" && ! -d "${split_dir}" ]] ; then
+		__usage >&2
+		{ __error "Please specify a directory to process AND a directory to place split files!" ; __newline ;} >&2
+		exit 1
+	elif [[ ! -d "${image_dir}" && -d "${split_dir}" ]] ; then
+		__usage >&2
+		{ __error "Please specify a directory to process!" ; __newline ;} >&2
+		exit 1
+	elif [[ -d "${image_dir}" && ! -d "${split_dir}" ]] ; then
+		__usage >&2
+		{ __error "Please specify a directory to place split files!" ; __newline ;} >&2
+		exit 1
+	fi
+else
+	__usage >&2
+	{ __error "Please specify a directory to process AND a directory to place split files!" ; __newline ;} >&2
+	exit 1
+fi
 
 # If ${jobs} wasn't set upon invocation, check in /proc
 # to see how many jobs should be run
@@ -1693,6 +1995,37 @@ if [[ -z "${jobs}" ]] ; then
 else
 	jobs_display="(User Defined)"
 fi
+
+#== .: END PRE-SCRIPT CHECKS :. ================================================
+
+
+#-------------------------------------------------------------------------------
+# .: BEGIN SCRIPT :.
+#-------------------------------------------------------------------------------
+# Store current stty settings
+old_stty="$(stty -g)"
+
+# Prevent Control-C from displaying '^C'.  May already be set
+stty -ctlecho 2>/dev/null
+
+# Hide the cursor
+printf "\033[?25l"
+
+# Temporary FIFO location
+tmp_fifo="/tmp/si_tmp_fifo_$$"
+
+# Temporary spinner FIFO
+spinner_fifo="/tmp/si_spinner_fifo_$$"
+
+# Shnsplit flac encoder to use:
+#   No SEEKTABLE block created
+#   Fastest/Lowest compression: 1
+#   Verify FLAC output (tests integrity)
+#   Output to shnsplit as '%f' which is sent as STDOUT to shnsplit as STDIN
+shn_flac_enc="flac flac --no-seektable -1 -V -o %f -"
+
+# Open up file descriptor '4' for reading and writing for use with the spinner
+__create_spinner_fd
 
 # Display top banner
 __top_banner
@@ -1739,4 +2072,4 @@ fi
 
 __operation_summary
 
-#== .: END SCRIPT :. ==========================================================
+#== .: END SCRIPT :. ===========================================================
