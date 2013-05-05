@@ -30,6 +30,18 @@
 #    3: FIFO process manager
 #    4: Spinner PID
 #-------------------------------------------------------------------------------
+# .: BASH OPTIONS :.
+#-------------------------------------------------------------------------------
+# Enable BASH globstar
+shopt -s globstar
+
+# Enable BASH extended globbing
+shopt -s extglob
+
+#== .: END BASH OPTIONS :. =====================================================
+
+
+#-------------------------------------------------------------------------------
 # .: SCRIPT MESSAGES :.
 #-------------------------------------------------------------------------------
 # Red message
@@ -374,7 +386,7 @@ __operation_abort () {
 	kill "${spinner_pid[0]}"
 
 	# Remove any temporary WAV files (if any)
-	rm -f "${image_dir}"/**/\[[0-9]*\]_tmp_si_[0-9]*.wav
+	rm -f "${split_dir}"/**/*_tmp_si_[0-9]*.wav
 
 	# Restore old stty settings, make stty happy by redirecting /dev/stderr
 	stty ${old_stty} < /dev/stderr
@@ -742,13 +754,11 @@ __check_missing_programs () {
 	stty_exists="$(type -P stty)"
 	mkfifo_exists="$(type -P mkfifo)"
 	wc_exists="$(type -P wc)"
-	ffprobe_exists="$(type -P ffprobe)"
 	metaflac_exists="$(type -P metaflac)"
 	flac_exists="$(type -P flac)"
 	mac_exists="$(type -P mac)"
 	wvunpack_exists="$(type -P wvunpack)"
 	iconv_exists="$(type -P iconv)"
-	shnsplit_exists="$(type -P shnsplit)"
 
 	# Go through and test if each command was found (by displaying its $PATH).
 	# If it's empty, add where you can find the package to an array to be
@@ -773,10 +783,6 @@ __check_missing_programs () {
 		command_exists_array+=( "You can generally install \"wc\" with the \"coreutils\" package." )
 	fi
 
-	if [[ -z "${ffprobe_exists}" ]] ; then
-		command_exists_array+=( "You can generally install \"ffprobe\" with the \"ffmpeg\" package." )
-	fi
-
 	if [[ -z "${metaflac_exists}" ]] ; then
 		command_exists_array+=( "You can generally install \"metaflac\" with the \"flac\" package." )
 	fi
@@ -795,10 +801,6 @@ __check_missing_programs () {
 
 	if [[ -z "${iconv_exists}" ]] ; then
 		command_exists_array+=( "You can generally install \"iconv\" with the \"glibc\" package." )
-	fi
-
-	if [[ -z "${shnsplit_exists}" ]] ; then
-		command_exists_array+=( "You can generally install \"shnsplit\" with the \"shntool\" package." )
 	fi
 
 	# If all the programs above were found, continue with script.  Else
@@ -918,10 +920,6 @@ __check_missing_files () {
 
 		exit 1
 	fi
-
-	# Clear ${file_array} from __cue_filename as this function is the only
-	# function that uses it
-	file_array=()
 }
 
 #== .: END ERROR FUNCTIONS :. ==================================================
@@ -981,7 +979,7 @@ __cue_filename () {
 			# Remove extension from file.  Loop twice for when a file name has
 			# two extensions:
 			#   <filename>.<WAV>.<EXTENSION>
-			for ((i=1; i<3; i++)) ; do
+			for i in {1..2} ; do
 				file="${file%.[Aa][Pp][Ee]}"
 				file="${file%.[Ff][Ll][Aa][Cc]}"
 				file="${file%.[Ww][Vv]}"
@@ -994,7 +992,7 @@ __cue_filename () {
 
 				# Remove extensions from current file in the directory, looping
 				# twice in the event a file has two extensions like above
-				for ((j=1; j<3; j++)) ; do
+				for i in {1..2} ; do
 					# ${i} is the ${current_file} with extensions removed
 					i="${current_file%.[Aa][Pp][Ee]}"
 					i="${i%.[Ff][Ll][Aa][Cc]}"
@@ -1104,7 +1102,7 @@ __cue_current_filename () {
 		# Remove extension from file.  Loop twice for when a file name has
 		# two extensions:
 		#   <filename>.<WAV>.<EXTENSION>
-		for ((i=1; i<3; i++)) ; do
+		for i in {1..2} ; do
 			file="${file%.[Aa][Pp][Ee]}"
 			file="${file%.[Ff][Ll][Aa][Cc]}"
 			file="${file%.[Ww][Vv]}"
@@ -1138,22 +1136,24 @@ __cue_current_filename () {
 		# Compare each audio file in the current directory to the file found
 		# in the CUE array.  If a match is found, add to ${file_array}
 		for current_file in "${tmp_total_files[@]##*/}" ; do
+			# Extension of the current file
+			extension="${current_file##*.}"
 
 			# Remove extensions from current file in the directory, looping
 			# twice in the event a file has two extensions like above
-			for ((j=1; j<3; j++)) ; do
+			for j in {1..2} ; do
 				# ${i} is the ${current_file} with extensions removed
-				i="${current_file%.[Aa][Pp][Ee]}"
-				i="${i%.[Ff][Ll][Aa][Cc]}"
-				i="${i%.[Ww][Vv]}"
-				i="${i%.[Ww][Aa][Vv]}"
+				current_file="${current_file%.[Aa][Pp][Ee]}"
+				current_file="${current_file%.[Ff][Ll][Aa][Cc]}"
+				current_file="${current_file%.[Ww][Vv]}"
+				current_file="${current_file%.[Ww][Aa][Vv]}"
 			done
 
-			# Compare ${i} ( ${current_file} without extensions ), with the
+			# Compare ${current_file} (without extensions), with the
 			# file found in the CUE array
-			if [[ "${i}" == "${file}" ]] ; then
+			if [[ "${current_file}" == "${file}" ]] ; then
 				# ${current_file} is the filename WITH the extension
-				file=( "${current_file}" )
+				file="${current_file}.${extension}"
 			fi
 		done
 
@@ -1231,40 +1231,6 @@ __cue_encoding () {
 	fi
 }
 
-# Run through CUE array and add an extra period to the end of each track TITLE
-# if that TITLE ends with a period (to prevent 'shnsplit' from NOT adding a
-# period)
-__cue_title_period () {
-	for line in "${cue_array[@]}" ; do
-		if [[ "${line}" == '    TITLE'* ]] ; then
-			# Strip everything but the last character (not including the quotes
-			# that may be at the end)
-			#
-			# Remove the last quote
-			line="${line%\"}"
-
-			# Last character of the line
-			last_char="${line:$(( ${#line} - 1 ))}"
-
-			# Replace TITLE line with the same line only with an extra period
-			# appended to the line (before the quote that would be at the end)
-			if [[ "${last_char}" == "." ]] ; then
-				check_title_period+=( "${line}.\"" )
-			else
-				check_title_period+=( "${line}" )
-			fi
-		else
-			check_title_period+=( "${line}" )
-		fi
-	done
-
-	# Store old version of ${cue_array[@]} (for use when tagging)
-	old_array=( "${cue_array[@]}" )
-
-	# Replace ${cue_array} with the values from ${check_title_period}
-	cue_array=( "${check_title_period[@]}" )
-}
-
 # Run through CUE array and replace certain characters
 # Characters replaced:
 #   ` -> '
@@ -1275,81 +1241,67 @@ __cue_replace_characters () {
 
 # Check for high resolution file and convert the INDEX time to milliseconds if
 # necessary
-__cue_resolution () {
-	# Obtain sample rate and bit depth from current file.  The order in which
-	# the type of formats displayed is not governed by the order it was called
-	# under '-show-entries'.  The order will always show 'sample_fmt' before
-	# 'sample_rate'
-	mapfile -n2 -t -s1 file_metadata < <(ffprobe -loglevel quiet -show_entries stream=sample_fmt,sample_rate "${dir}/${i}")
+__cue_milliseconds () {
+	# Clear & initialize array
+	high_res_cue=()
 
-	# Bit depth (first index)
-	bits="${file_metadata[0]#*=[A-Za-z]}"
-	bits="${bits%[A-Za-z]}"
+	# Run through the CUE array and for each line that is an INDEX, convert
+	# the time from frames/sec to milliseconds storing the new index and CUE
+	# sheet into a new array to be processed by 'shnsplit' as a temporary
+	# CUE sheet
+	for line in "${cue_array[@]}" ; do
+		if [[ "${line}" == *INDEX* ]] ; then
+			# Obtain just the time (eg 11:22:33) from the INDEX line
+			index="${line##* }"
 
-	# Sample rate (second index)
-	sample_rate="${file_metadata[1]#*=}"
+			# Store the INDEX line without the time (eg.
+			# '    INDEX 01')
+			index_string="${line% *}"
 
-	# If sample rate and/or bit depth is higher than CD quality (16bit/44.1kHz)
-	# change CUE format from 'mm:ss:ff' to 'mm:ss.nnn' (frames/sec to
-	# milliseconds)
-	if [[ "${sample_rate}" -gt 44100 || "${bits}" -gt 16 ]] ; then
-		# Clear & initialize array
-		high_res_cue=()
+			# Minutes
+			mm="${index%%:*}"
 
-		# Run through the CUE array and for each line that is an INDEX, convert
-		# the time from frames/sec to milliseconds storing the new index and CUE
-		# sheet into a new array to be processed by 'shnsplit' as a temporary
-		# CUE sheet
-		for line in "${cue_array[@]}" ; do
-			if [[ "${line}" == *INDEX* ]] ; then
-				# Obtain just the time (eg 11:22:33) from the INDEX line
-				index="${line##* }"
+			# Seconds
+			ss="${index#*:}"
+			ss="${ss%:*}"
 
-				# Store the INDEX line without the time (eg.
-				# '    INDEX 01')
-				index_string="${line% *}"
+			# Frames (per second)
+			ff="${index##*:}"
 
-				# Minutes
-				mm="${index%%:*}"
+			# Milliseconds (converted from frames/sec)
+			#   10#$(( ))             # Force base ten operation
+			#   ( # of frames )       # Number of frames/sec
+			#   * ( 1000 / 75 )       # Multiply by 1000 (milliseconds) and
+			#                           divide by 75 frames
+			#   printf -v nnn "%03d"  # Force a three digit number, prepended
+			#                           with zeroes if less than three digits
+			nnn=$(( 10#$(( ( ${ff#0} * 1000 / 75 ) )) ))
 
-				# Seconds
-				ss="${index#*:}"
-				ss="${ss%:*}"
+			# If milliseconds is greater than '999' (eg. '1234') then add
+			# the first digit to seconds keep the last three digits as
+			# milliseconds
+			if (( nnn > 999 )) ; then
+				# Add the first digit of milliseconds to seconds variable
+				printf -v ss "%02d" "$(( 10#$((  ${ss#0} + ${nnn%???}  )) ))"
 
-				# Frames (per second)
-				ff="${index##*:}"
-
-				# Milliseconds (converted from frames/sec)
-				#   10#$(( ))             # Force base ten operation
-				#   ( # of frames )       # Number of frames/sec
-				#   * ( 1000 / 75 )       # Multiply by 1000 (milliseconds) and
-				#                           divide by 75 frames
-				#   printf -v nnn "%03d"  # Force a three digit number, prepended
-				#                           with zeroes if less than three digits
-				printf -v nnn "%03d" "$(( 10#$((  ( ${ff#0} * 1000 / 75 )  )) ))"
-
-				# If milliseconds is greater than '999' (eg. '1234') then add
-				# the first digit to seconds keep the last three digits as
-				# milliseconds
-				if [[ "${nnn}" -gt 999 ]] ; then
-					# Add the first digit of milliseconds to seconds variable
-					printf -v ss "%02d" "$(( 10#$((  ${ss#0} + ${nnn%???}  )) ))"
-
-					# Cull the first digit of milliseconds
-					nnn="${nnn#?}"
-				fi
-
-				# Store the INDEX line with new time into the high resolution array
-				high_res_cue+=( "${index_string} ${mm}:${ss}.${nnn}" )
+				# Cull the first digit of milliseconds
+				nnn="${nnn#?}"
 			else
-				# Store the current line into the high resolution array
-				high_res_cue+=( "${line}" )
+				# Enforce milliseconds is a three digit number (prepended
+				# with zeroes, if necessary)
+				printf -v nnn "%03d" "${nnn}"
 			fi
-		done
 
-		# Set the CUE array to the high resolution version created
-		cue_array=( "${high_res_cue[@]}" )
-	fi
+			# Store the INDEX line with new time into the high resolution array
+			high_res_cue+=( "${index_string} ${mm}:${ss}.${nnn}" )
+		else
+			# Store the current line into the high resolution array
+			high_res_cue+=( "${line}" )
+		fi
+	done
+
+	# Set the CUE array to the high resolution version created
+	cue_array=( "${high_res_cue[@]}" )
 }
 
 #== .: END CUE COMMANDS :. =====================================================
@@ -1482,9 +1434,6 @@ __determine_operation () {
 					__check_missing_files
 				done
 
-				# Initialize ${c} to zero
-				c=0
-
 				for cue in "${cue_files[@]}" ; do
 					# Load and store CUE into array
 					__cue_array
@@ -1498,69 +1447,32 @@ __determine_operation () {
 					__cue_split
 
 					# If there are more than one CUE files (that were split),
-					# determine the starting number split files start at from
-					# the '-c' argument to 'shnsplit'
+					# determine the starting number, that split files start at
+					# from the '-c' argument to 'shnsplit'
 					if (( ${#multi_cue[@]} > 1 )) ; then
-						# Initialize ${d} to zero
-						d=0
-
 						# For each CUE that were split and stored as separate
 						# indices, determine the operation to run
 						for cue in "${multi_cue[@]}" ; do
 							# Load the split CUE into a temporary array
 							mapfile -n0 -t tmp_cue <<< "${cue}"
 
-							# Run through the CUE array and grab only the TRACK
-							# lines, storing into ${track_array}
-							for i in "${tmp_cue[@]}" ; do
-								if [[ "${i}" == '  TRACK'* ]] ; then
-									track_array+=( "${i}" )
-								fi
-							done
-
 							# The split CUE is stored as a single index in an
 							# array
 							cue=( "$(printf "%s\n" "${cue}")" )
 
-							# Add the operation to run to the array.  '-c' is
-							# ${d} + 1
-							operations+=( "$(( ${d} + 1 )) ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
-
-							# Add the number of TRACKs found in the CUE array
-							# to ${d}
-							d=$(( ${d} + ${#track_array[@]} ))
-
-							# Clear ${track_array} to not pollute next loop (if
-							# applicable)
-							track_array=()
+							# Add the operation to run to the array
+							operations+=( "${dir} ::::@@si@@:::: ${cue}" )
 						done
 					else
 						# Load the split CUE into a temporary array
-						mapfile -n0 -t tmp_cue < "${cue}"
-
-						# Run through the CUE array and grab only the TRACK
-						# lines, storing into ${track_array}
-						for i in "${tmp_cue[@]}" ; do
-							if [[ "${i}" == '  TRACK'* ]] ; then
-								track_array+=( "${i}" )
-							fi
-						done
+						mapfile -n0 -t tmp_cue <<< "${cue}"
 
 						# The split CUE is stored as a single index in an
 						# array
 						cue=( "$(printf "%s\n" "${multi_cue[@]}")" )
 
-						# Add the operation to run to the array.  '-c' is
-						# ${c} + 1
-						operations+=( "$(( ${c} + 1 )) ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
-
-						# Add the number of TRACKs found in the CUE array
-						# to ${c}
-						c=$(( ${c} + ${#track_array[@]} ))
-
-						# Clear the total number of TRACKs found from the split CUE array in
-						# order to not pollute the next loop (if applicable)
-						track_array=()
+						# Add the operation to run to the array
+						operations+=( "${dir} ::::@@si@@:::: ${cue}" )
 					fi
 
 					# Clear the multiple CUE array in the event that multiple
@@ -1593,9 +1505,6 @@ __determine_operation () {
 				# file listed in the separate CUE files
 				__cue_split
 
-				# Initialize ${c} to zero
-				c=0
-
 				# If there are more than one CUE files (that were split),
 				# determine the starting number split files start at from
 				# the '-c' argument to 'shnsplit'
@@ -1606,41 +1515,16 @@ __determine_operation () {
 						# Load the split CUE into a temporary array
 						mapfile -n0 -t tmp_cue <<< "${cue}"
 
-						# Run through the CUE array and grab only the TRACK
-						# lines, storing into ${track_array}
-						for i in "${tmp_cue[@]}" ; do
-							if [[ "${i}" == '  TRACK'* ]] ; then
-								track_array+=( "${i}" )
-							fi
-						done
-
 						# The split CUE is stored as a single index in an
 						# array
 						cue=( "$(printf "%s\n" "${cue}")" )
 
-						# Add the operation to run to the array.  '-c' is
-						# ${c} + 1
-						operations+=( "$(( ${c} + 1 )) ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
-
-						# Add the number of TRACKs found in the CUE array
-						# to ${c}
-						c=$(( ${c} + ${#track_array[@]} ))
-
-						# Clear ${track_array} to not pollute next loop (if
-						# applicable)
-						track_array=()
+						# Add the operation to run to the array
+						operations+=( "${dir} ::::@@si@@:::: ${cue}" )
 					done
 				else
 					# Load the split CUE into a temporary array
-					mapfile -n0 -t tmp_cue < "${cue}"
-
-					# Run through the CUE array and grab only the TRACK
-					# lines, storing into ${track_array}
-					for i in "${tmp_cue[@]}" ; do
-						if [[ "${i}" == '  TRACK'* ]] ; then
-							track_array+=( "${i}" )
-						fi
-					done
+					mapfile -n0 -t tmp_cue <<< "${cue}"
 
 					# The split CUE is stored as a single index in an
 					# array
@@ -1648,15 +1532,7 @@ __determine_operation () {
 
 					# Add the operation to run to the array.  '-c' is
 					# ${c} + 1
-					operations+=( "$(( ${c} + 1 )) ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
-
-					# Add the number of TRACKs found in the CUE array
-					# to ${c}
-					c=$(( ${c} + ${#track_array[@]} ))
-
-					# Clear the total number of TRACKs found from the split CUE array in
-					# order to not pollute the next loop (if applicable)
-					track_array=()
+					operations+=( "${dir} ::::@@si@@:::: ${cue}" )
 				fi
 			fi
 			#== .: END MULTIPLE FILES -- SINGLE CUE :. =========================
@@ -1685,14 +1561,13 @@ __determine_operation () {
 			cue=( "$(printf "%s\n" "${cue_array[@]}")" )
 
 			# Add the operation to run to the array.  '-c' is 1
-			operations+=( "1 ::::@@si@@:::: ${dir} ::::@@si@@:::: ${cue}" )
+			operations+=( "${dir} ::::@@si@@:::: ${cue}" )
 
 			# Clear arrays below in the event other files may be found.  This
 			# is explicitly called on this operation because the multiple files
 			# operations already clear the arrays when calling '__cue_split'
 			cue=()
 			cue_array=()
-			file_array=()
 		fi
 
 		#== .: END SINGLE FILE -- SINGLE/MULTIPLE CUE :. =======================
@@ -1755,104 +1630,114 @@ __create_split_dir () {
 	mkdir -p "${full_split_dir}"
 }
 
-# Split image file with 'shnsplit'
+# Decode the image file into WAV, if not already a WAV file
+__decode_file () {
+	# Let's make sure to kill running children if this function was aborted via
+	# SIGINT.  This function will receive EXIT from the kill in the previous
+	# trap
+	trap __kill_jobs EXIT
+
+	# Decode file into WAV using the right tool based off of the file extension
+	case "${extension}" in
+		[Aa][Pp][Ee])
+			mac "${dir}/${i}" "${full_split_dir}/${i%.*}_tmp_si_$$.wav" -d >/dev/null 2>&1
+
+			# Set $i to the decoded file
+			i="${full_split_dir}/${i%.*}_tmp_si_$$.wav"
+		;;
+		[Ww][Vv])
+			wvunpack -q "${dir}/${i}" -o "${full_split_dir}/${i%.*}_tmp_si_$$.wav"
+
+			# Set $i to the decoded file
+			i="${full_split_dir}/${i%.*}_tmp_si_$$.wav"
+		;;
+		*)
+			# Set the full pathname to $i
+			i="${dir}/${i}"
+		;;
+	esac
+}
+
+# Split image file with `flac'
 __split_file () {
 	# Let's make sure to kill running children if this function was aborted via
 	# SIGINT.  This function will receive EXIT from the kill in the previous
 	# trap
 	trap __kill_jobs EXIT
 
-	# Obtain the first TRACKNUMBER in the CUE array.  Used to configure
-	# what number the first split file should be via 'shnsplit'
-	for line in "${!cue_array[@]}" ; do
-		if [[ "${cue_array[${line}]}" == '    TITLE'* ]] ; then
-			# Grab the TRACKNUMBER, located one line above the TITLE line
-			TRACKNUMBER="${cue_array[$(( ${line} - 1 ))]#*TRACK }"
-			TRACKNUMBER="${TRACKNUMBER% *}"
+	# Clear the below arrays to ensure they are not polluted with previous files
+	title_array=()
+	tracknumber_array=()
+	split_indices=()
 
-			# Break out of loop since the first TRACKNUMBER was found
-			break
+	# Grab the tracknumber, title, and split points to use from the CUE array
+	#
+	# TRACKNUMBER
+	for line in "${cue_array[@]}" ; do
+		if [[ "${line}" == '  TRACK'* ]] ; then
+			tracknumber_line="${line##*TRACK }"
+			tracknumber_array+=( "${tracknumber_line%% *}" )
 		fi
 	done
 
-	# The below 'shnsplit' command splits the music image file:
-	#
-	#   -O always                 # Always overwrite files (if applicable)
-	#
-	#   -q                        # Suppress STDOUT (STDERR still shown)
-	#
-	#   -o "${shn_flac_enc}"      # Use defined FLAC encoder
-	#
-	#   -f /dev/stdin < <( )      # CUE file to use.  The path to '/dev/stdin'
-	#                               alleviates the need to use a physical CUE
-	#                               file
-	#
-	#   -c ${shnsplit_count}      # Start output of filename TRACKNUMBER at
-	#                               specified ${shnsplit_count} in the event
-	#                               that the CUE is part of multiple CUE files
-	#                               to split multiple files. 'shntool' does not
-	#                               correctly use '%n' to mean the TRACKNUMBER
-	#                               in the CUE, but to mean starting at 1 and
-	#                               sequentially increasing
-	#
-	#   -t '%n - %t'              # Split files named (eg. 03 - TITLE.flac)
-	#
-	#   -d "${full_split_dir}"    # Output directory of split files
-	#
-	#   "${dir}/${i}"             # Music image file to split
+	# TITLE
+	for line in "${cue_array[@]}" ; do
+		if [[ "${line}" == '    TITLE'* ]] ; then
+			title_line="${line#*TITLE*\"}"
+			title_array+=( "${title_line%\"*}" )
+		fi
+	done
 
-	shnsplit \
-		-O always \
-		-q \
-		-o "${shn_flac_enc}" \
-		-f /dev/stdin < <(printf "%s\n" "${cue_array[@]}") \
-		-c "${shnsplit_count}" \
-		-t '%n - %t' \
-		-d "${full_split_dir}" \
-		"${dir}/${i}"
+	# Split points
+	for line in "${cue_array[@]}" ; do
+		if [[ "${line}" == '    INDEX'* ]] ; then
+			split_indices+=( "${line##* }" )
+		fi
+	done
 
-	# Remove files with tracknumbers that are zero (eg '00'), since the CUE file
-	# doesn't contain track information for pre-gap files
-	rm -f "${full_split_dir}"/00*.flac
+	# For each index in the TITLE array, store the split points into an array
+	# to be used by `flac'
+	for num in "${!title_array[@]}" ; do
+		# Obtain starting split point
+		starting_split_point="${split_indices[${num}]}"
+
+		# Obtain ending split point
+		ending_split_point="${split_indices[$(( ${num} + 1 ))]}"
+
+		# Obtain track number
+		printf -v track_number %02d $(( 10#${tracknumber_array[${num}]} ))
+
+		# Obtain track title (filename)
+		track_title="${title_array[${num}]}.flac"
+
+		if [[ $(( ${num} + 1 )) -lt ${#title_array[@]} ]] ; then
+			flac \
+				--totally-silent \
+				-V \
+				-0 \
+				--skip="${starting_split_point}" \
+				--until="${ending_split_point}" \
+				"${i}" \
+				-o "${full_split_dir}/${track_number} - ${track_title}"
+		else
+			flac \
+				--totally-silent \
+				-V \
+				-0 \
+				--skip="${starting_split_point}" \
+				"${i}" \
+				-o "${full_split_dir}/${track_number} - ${track_title}"
+		fi
+	done
+
+	# Remove temporary WAV file (if applicable)
+	rm -f "${full_split_dir}"/**/*_tmp_si_[0-9]*.wav
 }
 
 # Tag the split music files
 __tag_files () {
-	# Initialize ${tracknumber_count} to zero
-	local tracknumber_count=0
-
-	# Run through old CUE array and grab the TRACKNUMBER and TITLE tag to
-	# determine which files to tag.  Enforce zero prepended TRACKNUMBER since
-	# arithmetic will strip the prepended zeroes
-	for line in "${old_array[@]}" ; do
-		if [[ "${line}" == '    TITLE'* ]] && (( tracknumber_count == 0 )) ; then
-			# The first TRACKNUMBER is from ${shnsplit_count}
-			printf -v TRACKNUMBER "%02d" "${shnsplit_count}"
-
-			# Add one to ${tracknumber_count}
-			(( tracknumber_count++ ))
-
-			# Grab the TITLE/filename
-			TITLE="${line#* TITLE*\"}"
-			TITLE="${TITLE%\"*}"
-
-			# Store the current filename to tag into an array formatted as:
-			#   TRACKNUMBER - filename.flac
-			files_to_tag+=( "${TRACKNUMBER} - ${TITLE}.flac" )
-
-		elif [[ "${line}" == '    TITLE'* ]] && (( tracknumber_count != 0 )) ; then
-			# The subsequent TRACKNUMBER is from ${shnsplit_count} + 1
-			printf -v TRACKNUMBER "%02d" "$(( ++shnsplit_count ))"
-
-			# Grab the TITLE/filename
-			TITLE="${line#* TITLE*\"}"
-			TITLE="${TITLE%\"*}"
-
-			# Store the current filename to tag into an array formatted as:
-			#   TRACKNUMBER - filename.flac
-			files_to_tag+=( "${TRACKNUMBER} - ${TITLE}.flac" )
-		fi
-	done
+	# Initialize array to empty to keep other runs from polluting the array
+	metaflac_tags=()
 
 	# Build the album tags to set (for metaflac) based on which tags were found.
 	# The indices for each of the tags is as follows (this is the order in which
@@ -1884,29 +1769,27 @@ __tag_files () {
 		metaflac_tags[6]="--set-tag=GENRE=${GENRE}"
 	fi
 
-	for file in "${files_to_tag[@]}" ; do
-		# Grab TITLE from current filename
-		# [0] TITLE
-		TITLE="${file#* - }"
-		metaflac_tags[0]="--set-tag=TITLE=${TITLE%.flac}"
+	# Run through the CUE array and grab the TITLE and split points of each
+	# song, storing them into their own arrays
+	for line in "${!cue_array[@]}" ; do
+		if [[ "${cue_array[${line}]}" == '    TITLE'* ]] ; then
+			# [0] TITLE
+			title_tag="${cue_array[${line}]#*TITLE*\"}"
+			title_tag="${title_tag%\"*}"
+			metaflac_tags[0]="--set-tag=TITLE=${title_tag}"
 
-		# Grab TRACKNUMBER from current filename
-		# [4] TRACKNUMBER
-		metaflac_tags[4]="--set-tag=TRACKNUMBER=${file%% - *}"
+			# [4] TRACKNUMBER - one line above TITLE
+			tracknumber_tag="${cue_array[$(( ${line} - 1 ))]##*TRACK }"
+			printf -v tracknumber_tag %02d $(( 10#${tracknumber_tag%% *} ))
+			metaflac_tags[4]="--set-tag=TRACKNUMBER=${tracknumber_tag}"
 
-		# Tag the current FLAC file with the obtained tags
-		metaflac \
-			"${metaflac_tags[@]}" \
-			"${full_split_dir}/${file}"
+			# Tag the current FLAC file with the obtained tags
+			metaflac \
+				--remove-all-tags \
+				"${metaflac_tags[@]}" \
+				"${full_split_dir}/${tracknumber_tag} - ${title_tag}.flac"
+		fi
 	done
-
-	# Clear ${files_to_tag} array in the event there are multiple files to split
-	# in one directory
-	files_to_tag=()
-
-	# Clear ${metaflac_tags} array in order to not pollute the tags to set in
-	# the event there are multiple files to split in one directory
-	metaflac_tags=()
 }
 
 #== .: END SUB OPERATIONS :. ===================================================
@@ -1922,18 +1805,11 @@ __operation_split () {
 	# trap
 	trap __kill_jobs EXIT
 
-	# Determine the count for 'shnsplit' used for the '-c' argument from the
-	# positional parameters ($@)
-	shnsplit_count="${@%% ::::@@si@@:::*}"
-
-	# Remove the first parameter '-c' (used for finding ${dir} and the CUE array
-	tmp_parameter="${@#*::::@@si@@:::: }"
-
-	# Set up current directory from ${tmp_parameter}
-	dir="${tmp_parameter% ::::@@si@@::::*}"
+	# Set up current directory from $@
+	dir="${@% ::::@@si@@::::*}"
 
 	# Set the CUE information from ${tmp_parameter} into the CUE array
-	mapfile -n0 -t cue_array <<< "${tmp_parameter#*::::@@si@@:::: }"
+	mapfile -n0 -t cue_array <<< "${@##*::::@@si@@:::: }"
 
 	# Check if CUE is neither ASCII or UTF8.  If not, then try to encode to
 	# UTF8, to help process files.  Normally, if not ASCII or UTF8, the encoding
@@ -1945,14 +1821,6 @@ __operation_split () {
 	# Characters replaced:
 	#   ` -> '
 	__cue_replace_characters
-
-	# Run through CUE array and add an extra period to the end of each track
-	# TITLE if that TITLE ends with a period (to prevent 'shnsplit' from NOT
-	# adding a period).  This is done LAST before obtaining tags and splitting
-	# in order to make sure ${old_array} is equal to ${cue_array} (ie, no
-	# more processing being done on ${cue_array} after creating a copy as
-	# ${old_array}
-	__cue_title_period
 
 	# Run through CUE array and obtain album tags and the current file to
 	# process
@@ -1976,10 +1844,9 @@ __operation_split () {
 	# Set ${i} from the file found from __cue_current_filename
 	i="${file}"
 
-	# Check if file has a higher resolution than a CD (eg. greater than
-	# 16bit/44.1kHz) and if so, convert the CUE sheet array from frames
-	# per second to milliseconds to allow shnsplit to work correctly
-	__cue_resolution
+	# Convert the CUE file from frames per seconds to milliseconds to allow
+	# `flac' to understand the split points being used
+	__cue_milliseconds
 
 	# Display spinner only once as it will always be running
 	if (( count == 1 )) ; then
@@ -1996,18 +1863,11 @@ __operation_split () {
 	# Create split files directory using tags obtained from the CUE array
 	__create_split_dir
 
-	# Split image file with 'shnsplit' and send to background to allow killing
-	# on SIGTERM
-	__split_file &
+	# Decode the image fiel to WAV (if not already a WAV file)
+	__decode_file
 
-	# Wait on background process and return exit code of said process
-	wait "${!}"
-
-	# Exit code 130 is SIGINT so only check for exit code '1'
-	if [[ "${?}" -eq 1 ]] ; then
-		__warn "Failed to split ${i#**/}." ; __newline
-		__warn "${i#**/} may be corrupt." ; __newline
-	fi
+	# Split image file with 'flac'
+	__split_file
 
 	# Tag the split music files
 	__tag_files
@@ -2022,9 +1882,6 @@ __operation_split () {
 #-------------------------------------------------------------------------------
 # .: PRE-SCRIPT CHECKS :.
 #-------------------------------------------------------------------------------
-# Enable BASH globstar
-shopt -s globstar
-
 # Current program version
 version="0.2"
 
@@ -2159,7 +2016,6 @@ else
 	__processed_files_ok
 
 	__newline
-	__info "Splitting music image files..." ; __newline
 
 	# Run parallel operations, that which is specified as ${1}
 	__run_parallel
