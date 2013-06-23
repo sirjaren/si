@@ -893,6 +893,25 @@ __run_parallel () {
 #-------------------------------------------------------------------------------
 # Check for missing files that are in ${file_array[@]}
 __check_missing_files () {
+	# Check for the same filename inside the CUE
+	for file in "${!file_array[@]}" ; do
+
+		for index in "${!file_array[@]}" ; do
+			if (( file != index )) ; then
+				if [[ "${file_array[${file}]}" == "${file_array[${index}]}" ]] ; then
+					__newline 2
+					__error "The same filename is specified more than once in a CUE:" ; __newline
+					__error "  ${cue%/*}/${file_array[${file}]}" ; __newline
+					__error ; __newline
+					__error "Check the CUE file and fix any issues, before running again:" ; __newline
+					__error "  ${cue}" ; __newline
+
+					exit 1
+				fi
+			fi
+		done
+	done
+
 	# Check if all the files in the above array exist in the current
 	# directory
 	if [[ -n "${files_dont_exist[@]}" ]] ; then
