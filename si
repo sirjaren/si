@@ -1253,9 +1253,13 @@ __cue_encoding () {
 # Run through CUE array and replace certain characters
 # Characters replaced:
 #   ` -> '
+#   / -> -
+#   \ -> -
 __cue_replace_characters () {
 	character="'"
 	cue_array=( "${cue_array[@]//\`/${character}}" )
+	cue_array=( "${cue_array[@]//\//-}" )
+	cue_array=( "${cue_array[@]//\\/-}" )
 }
 
 # Check for high resolution file and convert the INDEX time to milliseconds if
