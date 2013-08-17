@@ -1801,8 +1801,30 @@ __tag_files () {
 			title_tag="${title_tag%\"*}"
 			metaflac_tags[0]="--set-tag=TITLE=${title_tag}"
 
-			# [4] TRACKNUMBER - one line above TITLE
-			tracknumber_tag="${cue_array[$(( ${line} - 1 ))]##*TRACK }"
+			# [4] TRACKNUMBER - normally one line above TITLE, but could be a
+			# few lines above
+			#
+			# 1 line above
+			if [[ "${cue_array[$(( ${line} - 1 ))]}" == '  TRACK'* ]] ; then
+				tracknumber_tag="${cue_array[$(( ${line} - 1 ))]##*TRACK }"
+
+			# 2 lines above
+			elif [[ "${cue_array[$(( ${line} - 2 ))]}" == '  TRACK'* ]] ; then
+				tracknumber_tag="${cue_array[$(( ${line} - 2 ))]##*TRACK }"
+
+			# 3 lines above
+			elif [[ "${cue_array[$(( ${line} - 3 ))]}" == '  TRACK'* ]] ; then
+				tracknumber_tag="${cue_array[$(( ${line} - 3 ))]##*TRACK }"
+
+			# 4 lines above
+			elif [[ "${cue_array[$(( ${line} - 4 ))]}" == '  TRACK'* ]] ; then
+				tracknumber_tag="${cue_array[$(( ${line} - 4 ))]##*TRACK }"
+
+			# 5 lines above
+			elif [[ "${cue_array[$(( ${line} - 5 ))]}" == '  TRACK'* ]] ; then
+				tracknumber_tag="${cue_array[$(( ${line} - 5 ))]##*TRACK }"
+			fi
+
 			printf -v tracknumber_tag %02d $(( 10#${tracknumber_tag%% *} ))
 			metaflac_tags[4]="--set-tag=TRACKNUMBER=${tracknumber_tag}"
 
