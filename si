@@ -1713,7 +1713,7 @@ __split_file () {
 
 	# Split points
 	for line in "${cue_array[@]}" ; do
-		if [[ "${line}" == '    INDEX'* ]] ; then
+		if [[ "${line}" == '    INDEX 01'* ]] ; then
 			split_indices+=( "${line##* }" )
 		fi
 	done
@@ -1908,7 +1908,7 @@ __operation_split () {
 	# Create split files directory using tags obtained from the CUE array
 	__create_split_dir
 
-	# Decode the image fiel to WAV (if not already a WAV file)
+	# Decode the image file to WAV (if not already a WAV file)
 	__decode_file
 
 	# Split image file with 'flac'
