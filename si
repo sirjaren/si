@@ -1915,8 +1915,19 @@ __split_file () {
 
 						# Include the pregap as audio if the gap is 1 minute, or
 						# greater, in length
-						if (( (starting_split_check - ending_split_check) > 0 )) ; then
+						if (( (starting_minutes - ending_minutes) > 0 )) ; then
 							ending_split_point="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
+	
+							# NOTE: TEMPORARY {{{
+							# Obtain track number
+							printf -v track_number %02d $(( 10#${tracknumber_array[${num}]} ))
+
+							# Obtain track title (filename)
+							track_title="${title_array[${num}]}.flac"
+
+							echo "[included pregap] ${full_split_dir}/${track_number} - ${track_title}" >> ~/included_pregaps
+							# }}}
+
 						else
 							# Testing whether the pregap is 2 seconds, in length
 							# or greater
@@ -1943,8 +1954,18 @@ __split_file () {
 
 							# Include the pregap as audio if the gap is 2
 							# seconds in length, or greater
-							if (( (starting_index_seconds - ending_index_seconds) > 2 )) ; then
+							if (( (starting_seconds - ending_seconds) > 2 )) ; then
 								ending_split_point="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
+
+								# NOTE: TEMPORARY {{{
+								# Obtain track number
+								printf -v track_number %02d $(( 10#${tracknumber_array[${num}]} ))
+
+								# Obtain track title (filename)
+								track_title="${title_array[${num}]}.flac"
+
+								echo "[included pregap] ${full_split_dir}/${track_number} - ${track_title}" >> ~/included_pregaps
+								# }}}
 							fi
 						fi
 					fi
