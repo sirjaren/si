@@ -1937,11 +1937,14 @@ __split_file () {
 							# eg. '4.start::::04:23.117' -> 04:23.117
 							starting_seconds="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
 
-							# eg '04:23.117' -> 23.117
+							# eg. '04:23.117' -> 23.117
 							starting_seconds="${starting_seconds#*:}"
 
-							# eg '23.117' -> 23
+							# eg. '23.117' -> 23
 							starting_seconds="${starting_seconds%.*}"
+
+							# eg. '05' -> 5
+							starting_seconds="${starting_seconds#0}"
 
 							# We are using the ending split point obtained
 							# above, which is the next track after the current
@@ -1951,6 +1954,9 @@ __split_file () {
 
 							# eg. '25.223' -> 25
 							ending_seconds="${ending_seconds%.*}"
+
+							# eg. '05' -> 5
+							ending_seconds="${ending_seconds#0}"
 
 							# Include the pregap as audio if the gap is 2
 							# seconds in length, or greater
