@@ -1714,7 +1714,11 @@ __split_file () {
 		fi
 	done
 
+	# Run through the CUE array, determining what are the starting and ending
+	# split points to use when splitting the audio file
 	for line in "${!cue_array[@]}" ; do
+
+		# Continue only if we are currently on a TRACK index
 		if [[ "${cue_array[${line}]}" == '  TRACK'* ]] ; then
 			# eg. '  TRACK 04 AUDIO' -> 04
 			split_track="${cue_array[${line}]##*TRACK }"
@@ -1725,8 +1729,24 @@ __split_file () {
 			# eg. '04' -> 4
 			split_track="${split_track#0}"
 
+			# Check the various lines below the current line (TRACK) in the CUE
+			# array (up to 5 lines), looking for the INDEX split points.
+			#
+			# After finding an INDEX to key off of, check for the pregap split
+			# point (INDEX 00) and the track split point (INDEX 01), adding the
+			# various split points into an array:
+			#   split_indices
+			#
+			# When adding split points to an array, the current tracknumber is
+			# prepended as well as whether it's the starting or ending split
+			# point, in the format:
+			#   <tracknumber>.{start|end}::::<index split point>
+			#
+			# For example:
+			#   4.start::::09:17.444
 			if [[ "${cue_array[$(( line + 1 ))]}" == '    INDEX 0'* ]] ; then
 				if [[ "${cue_array[$(( line + 1 ))]}" == '    INDEX 00'* ]] ; then
+					# We are looking for INDEX 01 one below INDEX 00 (line + 2)
 					# eg. 4.start:::09:17.444
 					split_indices+=( "${split_track}.start::::${cue_array[$(( line + 2 ))]##* }" )
 
@@ -1739,6 +1759,7 @@ __split_file () {
 
 			elif [[ "${cue_array[$(( line + 2 ))]}" == '    INDEX 0'* ]] ; then
 				if [[ "${cue_array[$(( line + 2 ))]}" == '    INDEX 00'* ]] ; then
+					# We are looking for INDEX 01 one below INDEX 00 (line + 3)
 					# eg. 4.start:::09:17.444
 					split_indices+=( "${split_track}.start::::${cue_array[$(( line + 3 ))]##* }" )
 
@@ -1751,6 +1772,7 @@ __split_file () {
 
 			elif [[ "${cue_array[$(( line + 3 ))]}" == '    INDEX 0'* ]] ; then
 				if [[ "${cue_array[$(( line + 3 ))]}" == '    INDEX 00'* ]] ; then
+					# We are looking for INDEX 01 one below INDEX 00 (line + 4)
 					# eg. 4.start:::09:17.444
 					split_indices+=( "${split_track}.start::::${cue_array[$(( line + 4 ))]##* }" )
 
@@ -1763,6 +1785,7 @@ __split_file () {
 
 			elif [[ "${cue_array[$(( line + 4 ))]}" == '    INDEX 0'* ]] ; then
 				if [[ "${cue_array[$(( line + 4 ))]}" == '    INDEX 00'* ]] ; then
+					# We are looking for INDEX 01 one below INDEX 00 (line + 5)
 					# eg. 4.start:::09:17.444
 					split_indices+=( "${split_track}.start::::${cue_array[$(( line + 5 ))]##* }" )
 
@@ -1775,6 +1798,7 @@ __split_file () {
 
 			elif [[ "${cue_array[$(( line + 5 ))]}" == '    INDEX 0'* ]] ; then
 				if [[ "${cue_array[$(( line + 5 ))]}" == '    INDEX 00'* ]] ; then
+					# We are looking for INDEX 01 one below INDEX 00 (line + 6)
 					# eg. 4.start:::09:17.444
 					split_indices+=( "${split_track}.start::::${cue_array[$(( line + 6 ))]##* }" )
 
@@ -1790,57 +1814,146 @@ __split_file () {
 
 	# Sort the obtained tracknumber and split point into a new array called:
 	#   sorted_split_indices
+	#
+	# This will allow us to make the starting and ending split points, for a
+	# given track, match up and be right next to each other.  For example:
+	#   1.start::::00:00.000
+	#     1.end::::04:23.117
+	#   2.start::::04:25.324
+	#     2.end::::08:45.283
+	#   3.start::::08:47.342
+	#     3.end::::12:23.878
 	for index in "${!tracknumber_array[@]}" ; do
+
+		# Run through the split_indices array, finding the matching track number
+		# based off of the current 'index' (index + 1 ) from the above loop
 		for track in "${split_indices[@]}" ; do
+
+			# Key off only the starting split points, since we want the ending
+			# split points to come _after_ the starting split points
 			if [[ "${track}" == *'.start::::'* ]] ; then
+				# Current track number for the current starting split point
 				track_num="${track%%.start::::*}"
 			else
+				# Current track number for the current ending split point
 				track_num="${track%%.end::::*}"
 			fi
 
+			# If the current track number is equal to the current track number
+			# represented by the current 'index' of the outermost loop
+			# (index + 1), then add the current split point into the new array
 			if (( (index + 1) == track_num )) ; then
+				# eg. 4.start:::09:17.444 or 4.end:::12:34.826
 				sorted_split_indices+=( "${track}" )
 			fi
 		done
 	done
 
-	# For each index in the TITLE array, store the split points into an array
-	# to be used by `flac'
+	# For each index in the TITLE array, determine which split points from the
+	# sorted_split_indices array are to be used as the '--skip' and '--until'
+	# parameters for the `flac` command
+	#
+	# In addition to determining the starting and ending split points for the
+	# current file, there is logic below that will include the pregap as part of
+	# the audio (when splitting) only if the pregap length is greater than 2
+	# seconds
 	for num in "${!title_array[@]}" ; do
-		current_tracknumber="$(( num + 1 ))"
 
+		current_tracknumber="$(( num + 1 ))"    # Tracknumber starts at 1, not 0
+
+		# Run through the sorted_split_indices array, looking for the split
+		# points (the prepended tracknumber on each split point) that match the
+		# current tracknumber defined above.
+		#
+		# For each matched split point, we'll determine the starting and ending
+		# split points to be used by `flac`
 		for split_point in "${!sorted_split_indices[@]}" ; do
 
+			# Continue only if the current split point matches the current track
+			# number
 			if (( ${sorted_split_indices[${split_point}]%%.*::::*} == current_tracknumber )) ; then
 
+				# Continue only if the current split point is a starting split
+				# point.  We don't want to key off ending split points since
+				# we'll be utilizing logic below as to whether or not the pregap
+				# should be included as part of a splitted track
 				if [[ "${sorted_split_indices[${split_point}]%%::::*}" == "${current_tracknumber}.start" ]] ; then
+					# Current track (INDEX 01): eg. 00:00.000
 					starting_split_point="${sorted_split_indices[${split_point}]##*::::}"
+
+					# Following track (INDEX 00): eg. 04:23.117
 					ending_split_point="${sorted_split_indices[$(( split_point + 1 ))]##*::::}"
 
+					# If the ending split point (from the next track) is
+					# represented with the '.end' marker in the
+					# sorted_split_indices array, then we must check if the
+					# pregap is greater, in length, than 2 seconds
 					if [[ "${sorted_split_indices[$(( split_point + 1 ))]%%::::*}" == "${current_tracknumber}.end" ]] ; then
-						starting_split_check="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
-						starting_split_check="${starting_split_check%%:*}"
-						starting_split_check="${starting_split_check#0}"
+						# Testing the first part of the split point (minutes),
+						# checking if difference from INDEX 01 and INDEX 00 is
+						# 1 minute in length or greater
 
-						ending_split_check="${ending_split_point%%:*}"
-						ending_split_check="${ending_split_check#0}"
+						# We are looking for INDEX 01 one below INDEX 00
+						# (split_point + 2)
+						# eg. '4.start::::04:23.117' -> 04:23.117
+						starting_minutes="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
 
+						# eg. '04:23.117' -> 04
+						starting_minutes="${starting_minutes%%:*}"
+
+						# eg. '04' -> 4
+						starting_minutes="${starting_minutes#0}"
+
+						# We are using the ending split point obtained above,
+						# which is the next track after the current INDEX 01
+						# (INDEX 00 -- or the pregap)
+						# eg. '04:25.223' -> 04
+						ending_minutes="${ending_split_point%%:*}"
+
+						# eg. '04' -> 4
+						ending_minutes="${ending_minutes#0}"
+
+						# Include the pregap as audio if the gap is 1 minute, or
+						# greater, in length
 						if (( (starting_split_check - ending_split_check) > 0 )) ; then
 							ending_split_point="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
 						else
-							starting_index_seconds="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
-							starting_index_seconds="${starting_index_seconds#*:}"
-							starting_index_seconds="${starting_index_seconds%.*}"
+							# Testing whether the pregap is 2 seconds, in length
+							# or greater
 
-							ending_index_seconds="${ending_split_point#*:}"
-							ending_index_seconds="${ending_index_seconds%.*}"
+							# We are looking for INDEX 01 one below INDEX 00
+							# (split_point + 2)
+							# eg. '4.start::::04:23.117' -> 04:23.117
+							starting_seconds="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
 
+							# eg '04:23.117' -> 23.117
+							starting_seconds="${starting_seconds#*:}"
+
+							# eg '23.117' -> 23
+							starting_seconds="${starting_seconds%.*}"
+
+							# We are using the ending split point obtained
+							# above, which is the next track after the current
+							# INDEX 01 (INDEX 00 -- or the pregap)
+							# eg. '04:25.223' -> 25.223
+							ending_seconds="${ending_split_point#*:}"
+
+							# eg. '25.223' -> 25
+							ending_seconds="${ending_seconds%.*}"
+
+							# Include the pregap as audio if the gap is 2
+							# seconds in length, or greater
 							if (( (starting_index_seconds - ending_index_seconds) > 2 )) ; then
 								ending_split_point="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
 							fi
 						fi
 					fi
 				fi
+
+				# Break out of current split_points loop since we've already
+				# matched the current tracknumber with the tracknumbers inside
+				# the sorted_split_indices array, determining the correct split
+				# points to use for the current track
 				break
 			fi
 		done
@@ -1851,6 +1964,9 @@ __split_file () {
 		# Obtain track title (filename)
 		track_title="${title_array[${num}]}.flac"
 
+		# Include the '--until' parameter as long as we have a valid ending
+		# split point.  If the ending split point is null, the `flac` command
+		# will split the current track until the end of the input audio
 		if [[ -n "${ending_split_point}" ]] ; then
 			flac \
 				--totally-silent \
