@@ -1692,6 +1692,9 @@ __split_file () {
 	title_array=()
 	tracknumber_array=()
 	split_indices=()
+	sorted_split_indices=()
+	starting_split_point=""
+	ending_split_point=""
 
 	# Grab the tracknumber, title, and split points to use from the CUE array
 	#
@@ -1711,21 +1714,136 @@ __split_file () {
 		fi
 	done
 
-	# Split points
-	for line in "${cue_array[@]}" ; do
-		if [[ "${line}" == '    INDEX 01'* ]] ; then
-			split_indices+=( "${line##* }" )
+	for line in "${!cue_array[@]}" ; do
+		if [[ "${cue_array[${line}]}" == '  TRACK'* ]] ; then
+			# eg. '  TRACK 04 AUDIO' -> 04
+			split_track="${cue_array[${line}]##*TRACK }"
+
+			# eg. '04 AUDIO' -> 04
+			split_track="${split_track%% *}"
+
+			# eg. '04' -> 4
+			split_track="${split_track#0}"
+
+			if [[ "${cue_array[$(( line + 1 ))]}" == '    INDEX 0'* ]] ; then
+				if [[ "${cue_array[$(( line + 1 ))]}" == '    INDEX 00'* ]] ; then
+					# eg. 4.start:::09:17.444
+					split_indices+=( "${split_track}.start::::${cue_array[$(( line + 2 ))]##* }" )
+
+					# eg. 3.end:::09:15.444
+					split_indices+=( "$(( split_track - 1 )).end::::${cue_array[$(( line + 1 ))]##* }" )
+				elif [[ "${cue_array[$(( line + 1 ))]}" == '    INDEX 01'* ]] ; then
+					# eg. 4.start:::09:17.444
+					split_indices+=( "${split_track}.start::::${cue_array[$(( line + 1 ))]##* }" )
+				fi
+
+			elif [[ "${cue_array[$(( line + 2 ))]}" == '    INDEX 0'* ]] ; then
+				if [[ "${cue_array[$(( line + 2 ))]}" == '    INDEX 00'* ]] ; then
+					# eg. 4.start:::09:17.444
+					split_indices+=( "${split_track}.start::::${cue_array[$(( line + 3 ))]##* }" )
+
+					# eg. 3.end:::09:15.444
+					split_indices+=( "$(( split_track - 1 )).end::::${cue_array[$(( line + 2 ))]##* }" )
+				elif [[ "${cue_array[$(( line + 2 ))]}" == '    INDEX 01'* ]] ; then
+					# eg. 4.start:::09:17.444
+					split_indices+=( "${split_track}.start::::${cue_array[$(( line + 2 ))]##* }" )
+				fi
+
+			elif [[ "${cue_array[$(( line + 3 ))]}" == '    INDEX 0'* ]] ; then
+				if [[ "${cue_array[$(( line + 3 ))]}" == '    INDEX 00'* ]] ; then
+					# eg. 4.start:::09:17.444
+					split_indices+=( "${split_track}.start::::${cue_array[$(( line + 4 ))]##* }" )
+
+					# eg. 3.end:::09:15.444
+					split_indices+=( "$(( split_track - 1 )).end::::${cue_array[$(( line + 3 ))]##* }" )
+				elif [[ "${cue_array[$(( line + 3 ))]}" == '    INDEX 01'* ]] ; then
+					# eg. 4.start:::09:17.444
+					split_indices+=( "${split_track}.start::::${cue_array[$(( line + 3 ))]##* }" )
+				fi
+
+			elif [[ "${cue_array[$(( line + 4 ))]}" == '    INDEX 0'* ]] ; then
+				if [[ "${cue_array[$(( line + 4 ))]}" == '    INDEX 00'* ]] ; then
+					# eg. 4.start:::09:17.444
+					split_indices+=( "${split_track}.start::::${cue_array[$(( line + 5 ))]##* }" )
+
+					# eg. 3.end:::09:15.444
+					split_indices+=( "$(( split_track - 1 )).end::::${cue_array[$(( line + 4 ))]##* }" )
+				elif [[ "${cue_array[$(( line + 4 ))]}" == '    INDEX 01'* ]] ; then
+					# eg. 4.start:::09:17.444
+					split_indices+=( "${split_track}.start::::${cue_array[$(( line + 4 ))]##* }" )
+				fi
+
+			elif [[ "${cue_array[$(( line + 5 ))]}" == '    INDEX 0'* ]] ; then
+				if [[ "${cue_array[$(( line + 5 ))]}" == '    INDEX 00'* ]] ; then
+					# eg. 4.start:::09:17.444
+					split_indices+=( "${split_track}.start::::${cue_array[$(( line + 6 ))]##* }" )
+
+					# eg. 4.end:::12:34.826
+					split_indices+=( "$(( split_track - 1 )).end::::${cue_array[$(( line + 5 ))]##* }" )
+				elif [[ "${cue_array[$(( line + 5 ))]}" == '    INDEX 01'* ]] ; then
+					# eg. 4.start:::09:17.444
+					split_indices+=( "${split_track}.start::::${cue_array[$(( line + 5 ))]##* }" )
+				fi
+			fi
 		fi
+	done
+
+	# Sort the obtained tracknumber and split point into a new array called:
+	#   sorted_split_indices
+	for index in "${!tracknumber_array[@]}" ; do
+		for track in "${split_indices[@]}" ; do
+			if [[ "${track}" == *'.start::::'* ]] ; then
+				track_num="${track%%.start::::*}"
+			else
+				track_num="${track%%.end::::*}"
+			fi
+
+			if (( (index + 1) == track_num )) ; then
+				sorted_split_indices+=( "${track}" )
+			fi
+		done
 	done
 
 	# For each index in the TITLE array, store the split points into an array
 	# to be used by `flac'
 	for num in "${!title_array[@]}" ; do
-		# Obtain starting split point
-		starting_split_point="${split_indices[${num}]}"
+		current_tracknumber="$(( num + 1 ))"
 
-		# Obtain ending split point
-		ending_split_point="${split_indices[$(( ${num} + 1 ))]}"
+		for split_point in "${!sorted_split_indices[@]}" ; do
+
+			if (( ${sorted_split_indices[${split_point}]%%.*::::*} == current_tracknumber )) ; then
+
+				if [[ "${sorted_split_indices[${split_point}]%%::::*}" == "${current_tracknumber}.start" ]] ; then
+					starting_split_point="${sorted_split_indices[${split_point}]##*::::}"
+					ending_split_point="${sorted_split_indices[$(( split_point + 1 ))]##*::::}"
+
+					if [[ "${sorted_split_indices[$(( split_point + 1 ))]%%::::*}" == "${current_tracknumber}.end" ]] ; then
+						starting_split_check="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
+						starting_split_check="${starting_split_check%%:*}"
+						starting_split_check="${starting_split_check#0}"
+
+						ending_split_check="${ending_split_point%%:*}"
+						ending_split_check="${ending_split_check#0}"
+
+						if (( (starting_split_check - ending_split_check) > 0 )) ; then
+							ending_split_point="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
+						else
+							starting_index_seconds="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
+							starting_index_seconds="${starting_index_seconds#*:}"
+							starting_index_seconds="${starting_index_seconds%.*}"
+
+							ending_index_seconds="${ending_split_point#*:}"
+							ending_index_seconds="${ending_index_seconds%.*}"
+
+							if (( (starting_index_seconds - ending_index_seconds) > 2 )) ; then
+								ending_split_point="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
+							fi
+						fi
+					fi
+				fi
+				break
+			fi
+		done
 
 		# Obtain track number
 		printf -v track_number %02d $(( 10#${tracknumber_array[${num}]} ))
@@ -1733,7 +1851,7 @@ __split_file () {
 		# Obtain track title (filename)
 		track_title="${title_array[${num}]}.flac"
 
-		if [[ $(( ${num} + 1 )) -lt ${#title_array[@]} ]] ; then
+		if [[ -n "${ending_split_point}" ]] ; then
 			flac \
 				--totally-silent \
 				-V \
