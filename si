@@ -1889,10 +1889,9 @@ __split_file () {
 					# sorted_split_indices array, then we must check if the
 					# pregap is greater, in length, than 2 seconds
 					if [[ "${sorted_split_indices[$(( split_point + 1 ))]%%::::*}" == "${current_tracknumber}.end" ]] ; then
-						# Testing the first part of the split point (minutes),
-						# checking if difference from INDEX 01 and INDEX 00 is
-						# 1 minute in length or greater
 
+						# Grab the starting and ending split points (in minutes)
+						#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 						# We are looking for INDEX 01 one below INDEX 00
 						# (split_point + 2)
 						# eg. '4.start::::04:23.117' -> 04:23.117
@@ -1913,65 +1912,128 @@ __split_file () {
 						# eg. '04' -> 4
 						ending_minutes="${ending_minutes#0}"
 
-						# Include the pregap as audio if the gap is 1 minute, or
-						# greater, in length
-						if (( (starting_minutes - ending_minutes) > 0 )) ; then
-							ending_split_point="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
-	
-							# NOTE: TEMPORARY {{{
+						# Grab the starting and ending split points (in seconds)
+						#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+						# We are looking for INDEX 01 one below INDEX 00
+						# (split_point + 2)
+						# eg. '4.start::::04:23.117' -> 04:23.117
+						starting_seconds="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
+
+						# eg. '04:23.117' -> 23.117
+						starting_seconds="${starting_seconds#*:}"
+
+						# eg. '23.117' -> 23
+						starting_seconds="${starting_seconds%.*}"
+
+						# eg. '05' -> 5
+						starting_seconds="${starting_seconds#0}"
+
+						# We are using the ending split point obtained
+						# above, which is the next track after the current
+						# INDEX 01 (INDEX 00 -- or the pregap)
+						# eg. '04:25.223' -> 25.223
+						ending_seconds="${ending_split_point#*:}"
+
+						# eg. '25.223' -> 25
+						ending_seconds="${ending_seconds%.*}"
+
+						# eg. '05' -> 5
+						ending_seconds="${ending_seconds#0}"
+
+						pregap_minutes=$((starting_minutes - ending_minutes))
+
+						pregap_seconds=$((starting_seconds - ending_seconds))
+
+						if (( pregap_minutes >= 0 )) ; then
+							pregap_length="$(printf "%02d" "${pregap_minutes}")"
+						else
+							if [[ "${pregap_minutes%??}" == "-" ]] ; then
+								pregap_length="$(printf "%02d" "${pregap_minutes#-}")"
+							else
+								pregap_length="00"
+							fi
+						fi
+
+						if (( pregap_seconds >= 0 )) ; then
+							pregap_length="${pregap_length}:$(printf "%02d" "${pregap_seconds}")"
+						else
+							if [[ "${pregap_seconds%??}" == "-" ]] ; then
+								pregap_seconds=$(( 60 - ${pregap_seconds#-} ))
+								pregap_length="$(printf "%02d" "$(( pregap_length - 1 ))"):$(printf "%02d" "${pregap_seconds#-}")"
+							else
+								pregap_length="${pregap_length}:00"
+							fi
+						fi
+
+						# Include the pregap as audio if the gap 1 second, in
+						# length, or greater _AND_ if that gap has any audio, ie
+						# the gap is _NOT_ silence
+						if (( pregap_minutes > 0 || pregap_seconds > 0 )) ; then
+
 							# Obtain track number
 							printf -v track_number %02d $(( 10#${tracknumber_array[${num}]} ))
 
 							# Obtain track title (filename)
 							track_title="${title_array[${num}]}.flac"
 
-							echo "[included pregap] ${full_split_dir}/${track_number} - ${track_title}" >> ~/included_pregaps
-							# }}}
+							# Split the current audio file into the pregap
+							# obtained earlier.
+							#
+							# The `flac` command splits the audio file into the
+							# pregap and sends the split file to STDOUT which is
+							# read by SoX.
+							#
+							# SoX reads the STDOUT sent as STDIN and spits out
+							# various information relating to the FLAC file's
+							# MIN/MAX amplitude.  The resultant output is sent
+							# to STDOUT which is sent to an array via `mapfile`.
+							#
+							# Mapfile will read SoX's output (STDOUT) sent as
+							# STDIN, grabbing only the maximum amplitude, which
+							# which is line 3 from SoX's output, ie:
+							#   'Maximum amplitude: 0.481598'
+							mapfile -n1 -s3 max_amplitude < \
+								<( sox - -n stat 2>&1 < \
+									<(flac \
+										--totally-silent \
+										--no-seektable \
+										-V \
+										-0 \
+										--skip="${ending_split_point}" \
+										--until="${sorted_split_indices[$(( split_point + 2 ))]##*::::}" \
+										-c \
+										"${i}"
+									)
+								)
 
-						else
-							# Testing whether the pregap is 2 seconds, in length
-							# or greater
+							# Take the array obtained from the previous
+							# 'mapfile', and grab just the value, ie:
+							#   'Maximum amplitude: 0.481598' -> 0.481598
+							read -r _ _ max_amplitude <<< "${max_amplitude[0]}"
 
-							# We are looking for INDEX 01 one below INDEX 00
-							# (split_point + 2)
-							# eg. '4.start::::04:23.117' -> 04:23.117
-							starting_seconds="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
+							# Check if the maximum amplitude is negative, eg:
+							#  -0.000031
+							if [[ "${max_amplitude%%?.*}" != "-" ]] ; then
+								# eg. '0.481598' -> 0
+								max_amplitude_integer="${max_amplitude%%.*}"
 
-							# eg. '04:23.117' -> 23.117
-							starting_seconds="${starting_seconds#*:}"
+								# If the maximum amplitude is '1' or higher than
+								# there is audio to be kept
+								if (( max_amplitude_integer > 0 )) ; then
+									ending_split_point="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
+								else
+									# eg. '0.481598' -> 481598
+									max_amplitude_decimal="${max_amplitude#?.}"
 
-							# eg. '23.117' -> 23
-							starting_seconds="${starting_seconds%.*}"
+									# eg. '481598' -> 48
+									max_amplitude_decimal="${max_amplitude_decimal%????}"
 
-							# eg. '05' -> 5
-							starting_seconds="${starting_seconds#0}"
-
-							# We are using the ending split point obtained
-							# above, which is the next track after the current
-							# INDEX 01 (INDEX 00 -- or the pregap)
-							# eg. '04:25.223' -> 25.223
-							ending_seconds="${ending_split_point#*:}"
-
-							# eg. '25.223' -> 25
-							ending_seconds="${ending_seconds%.*}"
-
-							# eg. '05' -> 5
-							ending_seconds="${ending_seconds#0}"
-
-							# Include the pregap as audio if the gap is 2
-							# seconds in length, or greater
-							if (( (starting_seconds - ending_seconds) > 2 )) ; then
-								ending_split_point="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
-
-								# NOTE: TEMPORARY {{{
-								# Obtain track number
-								printf -v track_number %02d $(( 10#${tracknumber_array[${num}]} ))
-
-								# Obtain track title (filename)
-								track_title="${title_array[${num}]}.flac"
-
-								echo "[included pregap] ${full_split_dir}/${track_number} - ${track_title}" >> ~/included_pregaps
-								# }}}
+									# If the maximum amplitude is is higher than
+									# '0.00', then there is audio to be kept
+									if [[ "${max_amplitude_decimal}" != "00" ]] ; then
+										ending_split_point="${sorted_split_indices[$(( split_point + 2 ))]##*::::}"
+									fi
+								fi
 							fi
 						fi
 					fi
