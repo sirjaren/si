@@ -759,6 +759,7 @@ __check_missing_programs () {
 	mac_exists="$(type -P mac)"
 	wvunpack_exists="$(type -P wvunpack)"
 	iconv_exists="$(type -P iconv)"
+	sox_exists="$(type -P sox)"
 
 	# Go through and test if each command was found (by displaying its $PATH).
 	# If it's empty, add where you can find the package to an array to be
@@ -801,6 +802,10 @@ __check_missing_programs () {
 
 	if [[ -z "${iconv_exists}" ]] ; then
 		command_exists_array+=( "You can generally install \"iconv\" with the \"glibc\" package." )
+	fi
+
+	if [[ -z "${sox_exists}" ]] ; then
+		command_exists_array+=( "You can generally install \"sox\" with the \"SoX\" package." )
 	fi
 
 	# If all the programs above were found, continue with script.  Else
